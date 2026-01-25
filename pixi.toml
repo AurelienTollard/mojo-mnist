@@ -1,0 +1,10 @@
+[workspace]
+authors = ["AurelienT <tollard.aurelien1999@gmail.com>"]
+channels = ["conda-forge"]
+name = "mojo-mnist"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
