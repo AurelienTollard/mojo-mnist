@@ -13,6 +13,9 @@ mojo = "<1.0.0"
 numpy = ">=2.4.1, <3"
 torch = { version = ">=2.10.0, <3", index = "https://download.pytorch.org/whl/cu128" }
 torchvision = { version = ">=0.25.0, <0.26", index = "https://download.pytorch.org/whl/cu128" }
+fastapi = ">=0.128.0, <0.129"
+uvicorn = ">=0.40.0, <0.41"
+websockets = ">=16.0, <17"
 
 [tasks]
 dataset = { cmd = "pixi run python mnist.py", description = "Manage MNIST dataset" }

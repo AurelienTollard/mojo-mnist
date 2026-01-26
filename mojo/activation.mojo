@@ -16,5 +16,6 @@ fn relu[
     """
     return max(x, 0)
 
+
 def main():
     pass
