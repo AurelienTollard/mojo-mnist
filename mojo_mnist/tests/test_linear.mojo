@@ -10,6 +10,7 @@ comptime BATCH_SIZE = 4
 comptime IN_FEATURES = 1024
 comptime OUT_FEATURES = 512
 
+
 fn main() raises:
     with DeviceContext() as ctx:
         x_buf = ctx.enqueue_create_buffer[dtype](BATCH_SIZE * IN_FEATURES)
@@ -24,7 +25,9 @@ fn main() raises:
         y_buf = ctx.enqueue_create_buffer[dtype](BATCH_SIZE * OUT_FEATURES)
         y_buf.enqueue_fill(0)
 
-        expected = ctx.enqueue_create_host_buffer[dtype](BATCH_SIZE * OUT_FEATURES)
+        expected = ctx.enqueue_create_host_buffer[dtype](
+            BATCH_SIZE * OUT_FEATURES
+        )
         expected.enqueue_fill(0)
 
         with x_buf.map_to_host() as x_host, w_buf.map_to_host() as w_host, b_buf.map_to_host() as b_host:
@@ -43,8 +46,13 @@ fn main() raises:
                 for j in range(OUT_FEATURES):
                     var sum: Float32 = 0.0
                     for i in range(IN_FEATURES):
-                        sum += x_host[batch * IN_FEATURES + i] * w_host[i * OUT_FEATURES + j]
-                    expected[batch * OUT_FEATURES + j] = sum + Float32(1.0)  # add bias
+                        sum += (
+                            x_host[batch * IN_FEATURES + i]
+                            * w_host[i * OUT_FEATURES + j]
+                        )
+                    expected[batch * OUT_FEATURES + j] = sum + Float32(
+                        1.0
+                    )  # add bias
 
         # x layout: 2D row-major (BATCH_SIZE, IN_FEATURES)
         comptime x_layout = Layout.row_major(BATCH_SIZE, IN_FEATURES)
@@ -55,10 +63,18 @@ fn main() raises:
         # y layout: 2D row-major (BATCH_SIZE, OUT_FEATURES)
         comptime y_layout = Layout.row_major(BATCH_SIZE, OUT_FEATURES)
 
-        x_tensor = LayoutTensor[dtype, x_layout, ImmutAnyOrigin](x_buf.unsafe_ptr())
-        w_tensor = LayoutTensor[dtype, w_layout, ImmutAnyOrigin](w_buf.unsafe_ptr())
-        b_tensor = LayoutTensor[dtype, b_layout, ImmutAnyOrigin](b_buf.unsafe_ptr())
-        y_tensor = LayoutTensor[dtype, y_layout, MutAnyOrigin](y_buf.unsafe_ptr())
+        x_tensor = LayoutTensor[dtype, x_layout, ImmutAnyOrigin](
+            x_buf.unsafe_ptr()
+        )
+        w_tensor = LayoutTensor[dtype, w_layout, ImmutAnyOrigin](
+            w_buf.unsafe_ptr()
+        )
+        b_tensor = LayoutTensor[dtype, b_layout, ImmutAnyOrigin](
+            b_buf.unsafe_ptr()
+        )
+        y_tensor = LayoutTensor[dtype, y_layout, MutAnyOrigin](
+            y_buf.unsafe_ptr()
+        )
 
         comptime blocks_per_grid_y = (BATCH_SIZE + TILE_SIZE - 1) // TILE_SIZE
         comptime blocks_per_grid_x = (OUT_FEATURES + TILE_SIZE - 1) // TILE_SIZE
@@ -95,6 +111,11 @@ fn main() raises:
             for batch in range(BATCH_SIZE):
                 for j in range(OUT_FEATURES):
                     var idx = batch * OUT_FEATURES + j
-                    assert_almost_equal(abs(y_host[idx]), abs(expected[idx]), atol=1e-3, rtol=2e-2)
+                    assert_almost_equal(
+                        abs(y_host[idx]),
+                        abs(expected[idx]),
+                        atol=1e-3,
+                        rtol=2e-2,
+                    )
 
             print("✓ All tests passed!")
