@@ -1,15 +1,13 @@
-# Fused Linear + ReLU GPU kernel for MLP
-# Computes: Y = ReLU(X @ W + b) where X is batched input
-#
-# This kernel fuses the linear transformation and ReLU activation
-# to avoid extra memory round-trips between GPU global memory.
-
 from gpu import thread_idx, block_idx, block_dim, barrier
 from gpu.host import DeviceContext
 from gpu.memory import async_copy_wait_all
 from layout import Layout, LayoutTensor
+from layout.layout_tensor import copy_dram_to_sram_async
 from memory import AddressSpace
-from mojo_mnist.activation import relu_scalar
+from mojo_mnist.activation import relu_scalar, identity_scalar
+
+comptime TILE_SIZE = 32
+comptime BLOCK_DIM_COUNT = 2
 
 
 fn linear_relu_gpu_kernel[
@@ -18,7 +16,6 @@ fn linear_relu_gpu_kernel[
     layout_w: Layout,
     layout_b: Layout,
     layout_y: Layout,
-    tile_size: Int,
 ](
     x: LayoutTensor[dtype, layout_x, ImmutAnyOrigin],
     w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
@@ -30,15 +27,15 @@ fn linear_relu_gpu_kernel[
 ):
     """Fused Linear + ReLU kernel.
 
-    Convenience wrapper around linear_gpu_kernel using relu_scalar.
+    Convenience wrapper that hardcodes relu_scalar as the activation.
     """
-    linear_gpu_kernel[
+    linear_gpu_kernel_impl[
         dtype,
         layout_x,
         layout_w,
         layout_b,
         layout_y,
-        tile_size,
+        relu_scalar,
     ](
         x,
         w,
@@ -47,17 +44,53 @@ fn linear_relu_gpu_kernel[
         batch_size,
         in_features,
         out_features,
-        relu_scalar,
     )
 
 
-fn linear_gpu_kernel[
+fn linear_identity_gpu_kernel[
+    dtype: DType,
+    layout_x: Layout,
+    layout_w: Layout,
+    layout_b: Layout,
+    layout_y: Layout,
+](
+    x: LayoutTensor[dtype, layout_x, ImmutAnyOrigin],
+    w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
+    b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
+    y: LayoutTensor[dtype, layout_y, MutAnyOrigin],
+    batch_size: Int,
+    in_features: Int,
+    out_features: Int,
+):
+    """Fused Linear kernel with identity activation.
+
+    Convenience wrapper that hardcodes identity_scalar as the activation.
+    """
+    linear_gpu_kernel_impl[
+        dtype,
+        layout_x,
+        layout_w,
+        layout_b,
+        layout_y,
+        identity_scalar,
+    ](
+        x,
+        w,
+        b,
+        y,
+        batch_size,
+        in_features,
+        out_features,
+    )
+
+
+fn linear_gpu_kernel_impl[
     dtype: DType,
     layout_x: Layout,      # Input: (batch_size, in_features)
     layout_w: Layout,      # Weights: (in_features, out_features)
     layout_b: Layout,      # Bias: (out_features,)
     layout_y: Layout,      # Output: (batch_size, out_features)
-    tile_size: Int,        # Tile size for shared memory blocking
+    activation: fn[dtype: DType](x: Scalar[dtype]) -> Scalar[dtype],
 ](
     x: LayoutTensor[dtype, layout_x, ImmutAnyOrigin],        # Input tensor
     w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],        # Weight matrix
@@ -66,64 +99,83 @@ fn linear_gpu_kernel[
     batch_size: Int,
     in_features: Int,
     out_features: Int,
-    activation: fn[dtype: DType](x: Scalar[dtype]) unified -> Scalar[dtype],
 ):
     """Linear layer kernel with configurable activation.
 
-    Computes Y = activation(X @ W + b) using tiled matrix multiplication.
+    Computes Y = activation(X @ W + b) using tiled matrix multiplication
+    with async memory copies for optimal performance.
+
+    Supports arbitrary batch_size. Uses 2D grid: (batch_size, out_features).
     """
+    var tile_size_x = block_dim.x
+    var tile_size_y = block_dim.y
+
     local_row = thread_idx.y
     local_col = thread_idx.x
 
-    global_row = Int(block_idx.y * tile_size + local_row)
-    global_col = Int(block_idx.x * tile_size + local_col)
+    global_row = Int(block_idx.y * tile_size_y + local_row)
+    global_col = Int(block_idx.x * tile_size_x + local_col)
 
-    comptime load_layout = Layout.row_major(1, tile_size)
+    out_tile = y.tile[TILE_SIZE, TILE_SIZE](
+        Int(block_idx.y), Int(block_idx.x)
+    )
 
     x_shared = LayoutTensor[
         dtype,
-        Layout.row_major(tile_size, tile_size),
+        Layout.row_major(TILE_SIZE, TILE_SIZE),
         MutAnyOrigin,
         address_space = AddressSpace.SHARED,
     ].stack_allocation()
 
     w_shared = LayoutTensor[
         dtype,
-        Layout.row_major(tile_size, tile_size),
+        Layout.row_major(TILE_SIZE, TILE_SIZE),
         MutAnyOrigin,
         address_space = AddressSpace.SHARED,
     ].stack_allocation()
 
-    acc: x.element_type = 0
+    var acc: x.element_type = 0
 
-    num_tiles = (in_features + tile_size - 1) // tile_size
+    comptime load_x_layout = Layout.row_major(1, TILE_SIZE)
+    comptime load_w_layout = Layout.row_major(1, TILE_SIZE)
+
+    num_tiles = (in_features + TILE_SIZE - 1) // TILE_SIZE
 
     for tile_idx in range(num_tiles):
-        x_row = global_row
-        x_col = tile_idx * tile_size + local_col
+        x_tile = x.tile[TILE_SIZE, TILE_SIZE](Int(block_idx.y), tile_idx)
+        w_tile = w.tile[TILE_SIZE, TILE_SIZE](tile_idx, Int(block_idx.x))
 
-        w_row = tile_idx * tile_size + local_row
-        w_col = global_col
+        # Asynchronously copy tiles to shared memory
+        copy_dram_to_sram_async[
+            thread_layout=load_x_layout,
+            num_threads=TILE_SIZE * TILE_SIZE,
+            block_dim_count=BLOCK_DIM_COUNT,
+        ](x_shared, x_tile)
 
-        if x_row < batch_size and x_col < in_features:
-            x_shared[local_row, local_col] = x[x_row, x_col]
-        else:
-            x_shared[local_row, local_col] = 0
+        copy_dram_to_sram_async[
+            thread_layout=load_w_layout,
+            num_threads=TILE_SIZE * TILE_SIZE,
+            block_dim_count=BLOCK_DIM_COUNT,
+        ](w_shared, w_tile)
 
-        if w_row < in_features and w_col < out_features:
-            w_shared[local_row, local_col] = w[w_row, w_col]
-        else:
-            w_shared[local_row, local_col] = 0
-
+        async_copy_wait_all()
         barrier()
 
-        for k in range(tile_size):
-            k_global = tile_idx * tile_size + k
-            if k_global < in_features:
+        # Compute partial matrix multiplication for this tile
+        for k in range(TILE_SIZE):
+            k_global = tile_idx * TILE_SIZE + k
+            if (
+                local_row < TILE_SIZE
+                and local_col < TILE_SIZE
+                and k < TILE_SIZE
+                and k_global < in_features
+                and global_row < batch_size
+                and global_col < out_features
+            ):
                 acc += x_shared[local_row, k] * w_shared[k, local_col]
 
         barrier()
 
     if global_row < batch_size and global_col < out_features:
         result = acc + b[global_col]
-        y[global_row, global_col] = activation[dtype](rebind[Scalar[dtype]](result))
+        out_tile[local_row, local_col] = activation[dtype](rebind[Scalar[dtype]](result))
