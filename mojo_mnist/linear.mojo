@@ -221,7 +221,9 @@ fn _execute_linear_gpu[
         0,
     )
 
-    comptime kernel = kernel_fn[dtype, in_layout, w_layout, b_layout, out_layout]
+    comptime kernel = kernel_fn[
+        dtype, in_layout, w_layout, b_layout, out_layout
+    ]
     gpu_ctx.enqueue_function[kernel, kernel](
         in_tensor,
         w_tensor,
@@ -260,9 +262,14 @@ struct LinearReLUCustomOp:
 
         @parameter
         if target == "gpu":
-            _execute_linear_gpu[dtype, in_layout, w_layout, b_layout, out_layout, linear_relu_gpu_kernel](
-                output, input, weight, bias, ctx
-            )
+            _execute_linear_gpu[
+                dtype,
+                in_layout,
+                w_layout,
+                b_layout,
+                out_layout,
+                linear_relu_gpu_kernel,
+            ](output, input, weight, bias, ctx)
         else:
             raise Error("Unsupported target: " + target)
 
@@ -293,8 +300,13 @@ struct LinearCustomOp:
 
         @parameter
         if target == "gpu":
-            _execute_linear_gpu[dtype, in_layout, w_layout, b_layout, out_layout, linear_identity_gpu_kernel](
-                output, input, weight, bias, ctx
-            )
+            _execute_linear_gpu[
+                dtype,
+                in_layout,
+                w_layout,
+                b_layout,
+                out_layout,
+                linear_identity_gpu_kernel,
+            ](output, input, weight, bias, ctx)
         else:
             raise Error("Unsupported target: " + target)
