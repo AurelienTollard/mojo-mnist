@@ -5,7 +5,7 @@ from gpu.memory import async_copy_wait_all
 from layout import Layout, LayoutTensor
 from layout.layout_tensor import copy_dram_to_sram_async
 from max.tensor import InputTensor, OutputTensor
-from memory import AddressSpace, MutAnyOrigin, ImmutAnyOrigin
+from memory import AddressSpace
 from mojo_mnist.activation import relu_scalar, identity_scalar
 from runtime.asyncrt import DeviceContextPtr
 
@@ -24,13 +24,11 @@ fn linear_relu_gpu_kernel[
     w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
     b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
     y: LayoutTensor[dtype, layout_y, MutAnyOrigin],
-    batch_size: Int,
-    in_features: Int,
-    out_features: Int,
 ):
     """Fused Linear + ReLU kernel.
 
     Convenience wrapper that hardcodes relu_scalar as the activation.
+    Dimensions are extracted at compile-time from layout parameters.
     """
     linear_gpu_kernel_impl[
         dtype,
@@ -39,15 +37,7 @@ fn linear_relu_gpu_kernel[
         layout_b,
         layout_y,
         relu_scalar,
-    ](
-        x,
-        w,
-        b,
-        y,
-        batch_size,
-        in_features,
-        out_features,
-    )
+    ](x, w, b, y)
 
 
 fn linear_identity_gpu_kernel[
@@ -61,13 +51,11 @@ fn linear_identity_gpu_kernel[
     w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
     b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
     y: LayoutTensor[dtype, layout_y, MutAnyOrigin],
-    batch_size: Int,
-    in_features: Int,
-    out_features: Int,
 ):
     """Fused Linear kernel with identity activation.
 
     Convenience wrapper that hardcodes identity_scalar as the activation.
+    Dimensions are extracted at compile-time from layout parameters.
     """
     linear_gpu_kernel_impl[
         dtype,
@@ -76,15 +64,7 @@ fn linear_identity_gpu_kernel[
         layout_b,
         layout_y,
         identity_scalar,
-    ](
-        x,
-        w,
-        b,
-        y,
-        batch_size,
-        in_features,
-        out_features,
-    )
+    ](x, w, b, y)
 
 
 fn linear_gpu_kernel_impl[
@@ -99,17 +79,20 @@ fn linear_gpu_kernel_impl[
     w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],  # Weight matrix
     b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],  # Bias vector
     y: LayoutTensor[dtype, layout_y, MutAnyOrigin],  # Output tensor
-    batch_size: Int,
-    in_features: Int,
-    out_features: Int,
 ):
     """Linear layer kernel with configurable activation.
 
     Computes Y = activation(X @ W + b) using tiled matrix multiplication
     with async memory copies for optimal performance.
 
-    Supports arbitrary batch_size. Uses 2D grid: (batch_size, out_features).
+    Dimensions are extracted at compile-time from layout parameters.
+    Uses 2D grid: (batch_size, out_features).
     """
+    # Extract dimensions at compile-time from layouts
+    comptime batch_size = Int(layout_x.shape[0])
+    comptime in_features = Int(layout_x.shape[1])
+    comptime out_features = Int(layout_y.shape[1])
+
     tile_size_x = block_dim.x
     tile_size_y = block_dim.y
 
@@ -184,6 +167,73 @@ fn linear_gpu_kernel_impl[
         )
 
 
+fn _execute_linear_gpu[
+    dtype: DType,
+    in_layout: Layout,
+    w_layout: Layout,
+    b_layout: Layout,
+    out_layout: Layout,
+    kernel_fn: fn[
+        dtype: DType,
+        layout_x: Layout,
+        layout_w: Layout,
+        layout_b: Layout,
+        layout_y: Layout,
+    ] (
+        LayoutTensor[dtype, layout_x, ImmutAnyOrigin],
+        LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
+        LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
+        LayoutTensor[dtype, layout_y, MutAnyOrigin],
+    ) -> None,
+](
+    output: OutputTensor[dtype=dtype, rank=2],
+    input: InputTensor[dtype=dtype, rank=2],
+    weight: InputTensor[dtype=dtype, rank=2],
+    bias: InputTensor[dtype=dtype, rank=1],
+    ctx: DeviceContextPtr,
+) raises:
+    """Helper to execute linear kernel on GPU with proper grid/block setup.
+
+    Dimensions are extracted at compile-time from layout parameters.
+    """
+    out_tensor = output.to_layout_tensor()
+    in_tensor = input.to_layout_tensor()
+    w_tensor = weight.to_layout_tensor()
+    b_tensor = bias.to_layout_tensor()
+
+    var gpu_ctx = ctx.get_device_context()
+
+    comptime batch_size = in_layout.shape[0]()
+    comptime out_features = out_layout.shape[1]()
+
+    comptime blocks_y = (batch_size + TILE_SIZE - 1) // TILE_SIZE
+    comptime blocks_x = (out_features + TILE_SIZE - 1) // TILE_SIZE
+    comptime threads = (TILE_SIZE, TILE_SIZE)
+
+    # Zero output buffer first
+    gpu_ctx.enqueue_memset(
+        DeviceBuffer[dtype](
+            gpu_ctx,
+            out_tensor.ptr,
+            batch_size * out_features,
+            owning=False,
+        ),
+        0,
+    )
+
+    comptime kernel = kernel_fn[dtype, in_layout, w_layout, b_layout, out_layout]
+    gpu_ctx.enqueue_function[kernel, kernel](
+        in_tensor,
+        w_tensor,
+        b_tensor,
+        out_tensor,
+        grid_dim=(blocks_x, blocks_y),
+        block_dim=threads,
+    )
+
+    gpu_ctx.synchronize()
+
+
 @register("linear_relu")
 struct LinearReLUCustomOp:
     """Linear layer with ReLU activation as PyTorch custom operator."""
@@ -198,67 +248,21 @@ struct LinearReLUCustomOp:
     ](
         output: OutputTensor[dtype=dtype, rank=2],
         input: InputTensor[dtype=dtype, rank=2],
-        weight: InputTensor[
-            dtype=dtype, rank=2
-        ],
+        weight: InputTensor[dtype=dtype, rank=2],
         bias: InputTensor[dtype=dtype, rank=1],
         ctx: DeviceContextPtr,
     ) raises:
-        """Execute linear layer: Y = ReLU(X @ W + b).
-
-        Args:
-            output: Output tensor (batch_size, out_features)
-            input: Input tensor (batch_size, in_features)
-            weight: Weight matrix (in_features, out_features) - transposed from PyTorch
-            bias: Bias vector (out_features,)
-            ctx: Device context pointer
-        """
-        # Convert to LayoutTensors
-        out_tensor = output.to_layout_tensor()
-        in_tensor = input.to_layout_tensor()
-        w_tensor = weight.to_layout_tensor()
-        b_tensor = bias.to_layout_tensor()
-
-        comptime in_layout = in_tensor.layout
-        comptime w_layout = w_tensor.layout
-        comptime b_layout = b_tensor.layout
-        comptime out_layout = out_tensor.layout
+        """Execute linear layer: Y = ReLU(X @ W + b)."""
+        comptime in_layout = Layout.row_major(batch_size, in_features)
+        comptime w_layout = Layout.row_major(in_features, out_features)
+        comptime b_layout = Layout.row_major(out_features)
+        comptime out_layout = Layout.row_major(batch_size, out_features)
 
         @parameter
         if target == "gpu":
-            gpu_ctx = ctx.get_device_context()
-
-            comptime blocks_y = (batch_size + TILE_SIZE - 1) // TILE_SIZE
-            comptime blocks_x = (out_features + TILE_SIZE - 1) // TILE_SIZE
-            comptime threads = (TILE_SIZE, TILE_SIZE)
-
-            # Zero output buffer first
-            gpu_ctx.enqueue_memset(
-                DeviceBuffer[output.dtype](
-                    gpu_ctx,
-                    out_tensor.ptr,
-                    batch_size * out_features,
-                    owning=False,
-                ),
-                0,
+            _execute_linear_gpu[dtype, in_layout, w_layout, b_layout, out_layout, linear_relu_gpu_kernel](
+                output, input, weight, bias, ctx
             )
-
-            comptime kernel = linear_relu_gpu_kernel[
-                dtype, in_layout, w_layout, b_layout, out_layout
-            ]
-            gpu_ctx.enqueue_function[kernel, kernel](
-                in_tensor,
-                w_tensor,
-                b_tensor,
-                out_tensor,
-                batch_size,
-                in_features,
-                out_features,
-                grid_dim=(blocks_x, blocks_y),
-                block_dim=threads,
-            )
-
-            gpu_ctx.synchronize()
         else:
             raise Error("Unsupported target: " + target)
 
@@ -282,50 +286,15 @@ struct LinearCustomOp:
         ctx: DeviceContextPtr,
     ) raises:
         """Execute linear layer: Y = X @ W + b (no activation)."""
-        out_tensor = output.to_layout_tensor()
-        in_tensor = input.to_layout_tensor()
-        w_tensor = weight.to_layout_tensor()
-        b_tensor = bias.to_layout_tensor()
-
-        comptime in_layout = in_tensor.layout
-        comptime w_layout = w_tensor.layout
-        comptime b_layout = b_tensor.layout
-        comptime out_layout = out_tensor.layout
+        comptime in_layout = Layout.row_major(batch_size, in_features)
+        comptime w_layout = Layout.row_major(in_features, out_features)
+        comptime b_layout = Layout.row_major(out_features)
+        comptime out_layout = Layout.row_major(batch_size, out_features)
 
         @parameter
         if target == "gpu":
-            gpu_ctx = ctx.get_device_context()
-
-            comptime blocks_y = (batch_size + TILE_SIZE - 1) // TILE_SIZE
-            comptime blocks_x = (out_features + TILE_SIZE - 1) // TILE_SIZE
-            comptime threads = (TILE_SIZE, TILE_SIZE)
-
-            # Zero output buffer first
-            gpu_ctx.enqueue_memset(
-                DeviceBuffer[output.dtype](
-                    gpu_ctx,
-                    out_tensor.ptr,
-                    batch_size * out_features,
-                    owning=False,
-                ),
-                0,
+            _execute_linear_gpu[dtype, in_layout, w_layout, b_layout, out_layout, linear_identity_gpu_kernel](
+                output, input, weight, bias, ctx
             )
-
-            comptime kernel = linear_identity_gpu_kernel[
-                dtype, in_layout, w_layout, b_layout, out_layout
-            ]
-            gpu_ctx.enqueue_function[kernel, kernel](
-                in_tensor,
-                w_tensor,
-                b_tensor,
-                out_tensor,
-                batch_size,
-                in_features,
-                out_features,
-                grid_dim=(blocks_x, blocks_y),
-                block_dim=threads,
-            )
-
-            gpu_ctx.synchronize()
         else:
             raise Error("Unsupported target: " + target)

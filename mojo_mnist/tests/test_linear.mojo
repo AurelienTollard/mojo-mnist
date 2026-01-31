@@ -92,9 +92,6 @@ fn main() raises:
             w_tensor,
             b_tensor,
             y_tensor,
-            BATCH_SIZE,
-            IN_FEATURES,
-            OUT_FEATURES,
             grid_dim=(blocks_per_grid_x, blocks_per_grid_y),
             block_dim=threads_per_block,
         )
