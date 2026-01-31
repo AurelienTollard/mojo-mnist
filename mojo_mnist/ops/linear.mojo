@@ -3,7 +3,7 @@ from gpu import thread_idx, block_idx, block_dim, barrier
 from gpu.host import DeviceContext, DeviceBuffer
 from gpu.memory import async_copy_wait_all
 from layout import Layout, LayoutTensor
-from max.tensor import InputTensor, OutputTensor
+from tensor import InputTensor, OutputTensor
 from mojo_mnist.linear import linear_relu_gpu_kernel, linear_identity_gpu_kernel, TILE_SIZE
 from runtime.asyncrt import DeviceContextPtr
 
