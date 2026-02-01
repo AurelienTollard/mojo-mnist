@@ -373,8 +373,8 @@
 
       function getPos(evt) {
         const rect = canvas.getBoundingClientRect();
-        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
-        const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+        const clientX = evt.clientX;
+        const clientY = evt.clientY;
         return {
           x: ((clientX - rect.left) / rect.width) * canvas.width,
           y: ((clientY - rect.top) / rect.height) * canvas.height,
@@ -383,6 +383,9 @@
 
       function startDraw(evt) {
         drawing = true;
+        if (canvas.setPointerCapture) {
+          canvas.setPointerCapture(evt.pointerId);
+        }
         const pos = getPos(evt);
         ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
@@ -397,9 +400,12 @@
         schedulePredict();
       }
 
-      function endDraw() {
+      function endDraw(evt) {
         drawing = false;
         ctx.closePath();
+        if (canvas.releasePointerCapture && evt && evt.pointerId !== undefined) {
+          canvas.releasePointerCapture(evt.pointerId);
+        }
       }
 
       function schedulePredict() {
@@ -493,21 +499,19 @@
         }
       }
 
-      canvas.addEventListener("mousedown", startDraw);
-      canvas.addEventListener("mousemove", draw);
-      canvas.addEventListener("mouseup", endDraw);
-      canvas.addEventListener("mouseleave", endDraw);
-      canvas.addEventListener("touchstart", (evt) => {
+      canvas.addEventListener("pointerdown", (evt) => {
         evt.preventDefault();
         startDraw(evt);
       });
-      canvas.addEventListener("touchmove", (evt) => {
-        evt.preventDefault();
+      canvas.addEventListener("pointermove", (evt) => {
+        if (!drawing) return;
         draw(evt);
       });
-      canvas.addEventListener("touchend", (evt) => {
-        evt.preventDefault();
-        endDraw();
+      canvas.addEventListener("pointerup", (evt) => {
+        endDraw(evt);
+      });
+      canvas.addEventListener("pointercancel", (evt) => {
+        endDraw(evt);
       });
 
       clearBtn.addEventListener("click", () => {

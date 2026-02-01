@@ -1,32 +1,18 @@
 from argparse import ArgumentParser
 from logging import INFO, basicConfig, getLogger
 from pathlib import Path
-from typing import Callable, Optional, cast
-import sys
+from typing import Callable, cast
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from mojo_mnist.demo import mnist
 import torch
+from .mnist import download_training_set, download_validation_set
 from torch import nn, optim
 from torch.utils.data import DataLoader
+
+from mojo_mnist.ops.linear import linear, linear_relu
 
 LOGGER = getLogger(__name__)
 
 LinearFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], None]
-
-linear_relu: Optional[LinearFn]
-linear: Optional[LinearFn]
-_mojo_import_error: Optional[Exception] = None
-
-try:
-    from mojo_mnist.ops.linear import linear, linear_relu
-except Exception as exc:  # pragma: no cover - optional dependency
-    linear_relu = None
-    linear = None
-    _mojo_import_error = exc
 
 # Hyperparameters
 BATCH_SIZE = 64
@@ -59,11 +45,6 @@ class MojoMLP(nn.Module):
         self, input_size: int = 784, hidden_size: int = 256, num_classes: int = 10
     ) -> None:
         super().__init__()
-        if linear_relu is None or linear is None:
-            raise RuntimeError(
-                "Mojo ops are unavailable. Install the 'modular' package and "
-                "ensure mojo_mnist.ops.linear can be imported."
-            ) from _mojo_import_error
 
         self.flatten = nn.Flatten()
         self.input_size = input_size
@@ -199,8 +180,8 @@ def run_training(export_path: str) -> None:
     device = get_device()
     LOGGER.info("Using device: %s", device)
 
-    train_data = mnist.download_training_set()
-    validation_data = mnist.download_validation_set()
+    train_data = download_training_set()
+    validation_data = download_validation_set()
 
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(validation_data, batch_size=BATCH_SIZE, shuffle=False)
@@ -235,7 +216,7 @@ def run_validation(backend: str, model_path: str) -> None:
     device = get_device()
     LOGGER.info("Using device: %s", device)
 
-    validation_data = mnist.download_validation_set()
+    validation_data = download_validation_set()
     test_loader = DataLoader(validation_data, batch_size=BATCH_SIZE, shuffle=False)
 
     state_dict = torch.load(model_path, map_location="cpu")
@@ -247,11 +228,6 @@ def run_validation(backend: str, model_path: str) -> None:
     elif backend == "mojo":
         if device.type != "cuda":
             raise RuntimeError("Mojo backend requires CUDA")
-        if linear_relu is None or linear is None:
-            raise RuntimeError(
-                "Mojo ops are unavailable. Install the 'modular' package and "
-                "ensure mojo_mnist.ops.linear can be imported."
-            ) from _mojo_import_error
         model = MojoMLP(hidden_size=HIDDEN_SIZE).to(device)
         model.load_from_state_dict(state_dict)
     else:
@@ -301,4 +277,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if __package__ in (None, ""):
+        raise RuntimeError("Run as a module: python -m mojo_mnist.demo.mlp [args]")
     main()

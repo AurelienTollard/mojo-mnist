@@ -1,25 +1,19 @@
 from __future__ import annotations
 
 import io
-import sys
 from pathlib import Path
 from typing import Any, cast
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from .mlp import HIDDEN_SIZE, MLP, MojoMLP, get_device
 from PIL import Image
-
-from mojo_mnist.demo.mlp import HIDDEN_SIZE, MLP, MojoMLP, get_device
 
 app = FastAPI()
 
-DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / ".data" / "mlp_mnist.pth"
+DEFAULT_MODEL_PATH = Path(__file__).parent.parent / ".data" / "mlp_mnist.pth"
 DEMO_DIR = Path(__file__).parent
 INDEX_FILE = DEMO_DIR / "index.html"
 MODEL_CACHE: dict[tuple[str, str, str], torch.nn.Module] = {}
@@ -140,6 +134,8 @@ async def predict(
 
 
 if __name__ == "__main__":
+    if __package__ in (None, ""):
+        raise RuntimeError("Run as a module: python -m mojo_mnist.demo.server")
     import uvicorn
 
     uvicorn.run(app, host="127.0.0.1", port=8000)
