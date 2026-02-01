@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mojo MNIST Canvas</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f2ea;
+        --bg-accent: #e9dfd0;
+        --card: #ffffff;
+        --ink: #1b1a17;
+        --muted: #5a5147;
+        --accent: #d87b43;
+        --accent-dark: #b65d2a;
+        --border: #e4d7c3;
+        --shadow: 0 20px 45px rgba(32, 24, 16, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        background: radial-gradient(
+            circle at top left,
+            rgba(216, 123, 67, 0.12),
+            transparent 50%
+          ),
+          radial-gradient(
+            circle at 30% 10%,
+            rgba(91, 141, 163, 0.12),
+            transparent 55%
+          ),
+          var(--bg);
+        color: var(--ink);
+        min-height: 100vh;
+      }
+
+      header {
+        padding: 32px 20px 10px;
+        text-align: center;
+      }
+
+      header h1 {
+        margin: 0 0 6px;
+        font-size: clamp(24px, 4vw, 36px);
+        letter-spacing: -0.02em;
+      }
+
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      main {
+        display: grid;
+        gap: 24px;
+        padding: 24px;
+        max-width: 980px;
+        margin: 0 auto 40px;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        padding: 24px;
+        display: grid;
+        gap: 16px;
+        animation: fadeIn 0.6s ease;
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      }
+
+      canvas {
+        width: 280px;
+        height: 280px;
+        border-radius: 18px;
+        border: 2px solid var(--border);
+        background: #fcfaf6;
+        justify-self: center;
+        touch-action: none;
+      }
+
+      .controls {
+        display: grid;
+        gap: 12px;
+      }
+
+      label {
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      select,
+      input[type="text"] {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 13px;
+        color: var(--ink);
+        background: #fffdf9;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .buttons {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 10px 16px;
+        border-radius: 12px;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+        background: var(--accent);
+        color: white;
+        transition: transform 0.2s ease, background 0.2s ease;
+      }
+
+      button.secondary {
+        background: #f0e5d6;
+        color: var(--ink);
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        background: var(--accent-dark);
+      }
+
+      button.secondary:hover {
+        background: #e7d7c5;
+      }
+
+      .result {
+        background: var(--bg-accent);
+        border-radius: 14px;
+        padding: 16px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 13px;
+        color: #2d241b;
+      }
+
+      .result strong {
+        font-size: 22px;
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 600px) {
+        canvas {
+          width: 240px;
+          height: 240px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Mojo MNIST Canvas</h1>
+      <p>Draw a digit and let the model guess it in real time.</p>
+    </header>
+
+    <main>
+      <section class="panel grid">
+        <div class="controls">
+          <label for="backend">Backend</label>
+          <select id="backend">
+            <option value="mojo" selected>mojo (GPU)</option>
+            <option value="pytorch">pytorch</option>
+          </select>
+
+          <label for="model">Model path</label>
+          <input
+            id="model"
+            type="text"
+            value=".data/mlp_mnist.pth"
+            autocomplete="off"
+          />
+
+          <div class="buttons">
+            <button id="predictBtn">Predict</button>
+            <button id="clearBtn" class="secondary">Clear</button>
+          </div>
+
+          <div class="status" id="status">Ready.</div>
+        </div>
+
+        <div>
+          <canvas id="canvas" width="280" height="280"></canvas>
+        </div>
+      </section>
+
+      <section class="panel">
+          <div class="result" id="result">
+            <strong>—</strong>
+            Draw a digit to see live predictions.
+          </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const predictBtn = document.getElementById("predictBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const backendSelect = document.getElementById("backend");
+      const modelInput = document.getElementById("model");
+      const resultEl = document.getElementById("result");
+      const statusEl = document.getElementById("status");
+
+      ctx.fillStyle = "#fcfaf6";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 18;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#111";
+
+      let drawing = false;
+      let predictTimer = null;
+      let inFlight = false;
+      let pending = false;
+      let lastPredictAt = 0;
+      const debounceMs = 100;
+
+      function getPos(evt) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+        const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+        return {
+          x: ((clientX - rect.left) / rect.width) * canvas.width,
+          y: ((clientY - rect.top) / rect.height) * canvas.height,
+        };
+      }
+
+      function startDraw(evt) {
+        drawing = true;
+        const pos = getPos(evt);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        schedulePredict();
+      }
+
+      function draw(evt) {
+        if (!drawing) return;
+        const pos = getPos(evt);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        schedulePredict();
+      }
+
+      function endDraw() {
+        drawing = false;
+        ctx.closePath();
+      }
+
+      function schedulePredict() {
+        if (!drawing) return;
+        const now = Date.now();
+        const elapsed = now - lastPredictAt;
+
+        if (inFlight) {
+          pending = true;
+          return;
+        }
+
+        if (elapsed >= debounceMs) {
+          runPredict();
+          return;
+        }
+
+        if (predictTimer) return;
+        predictTimer = setTimeout(() => {
+          predictTimer = null;
+          if (!drawing) return;
+          if (inFlight) {
+            pending = true;
+            return;
+          }
+          runPredict();
+        }, debounceMs - elapsed);
+      }
+
+      async function runPredict() {
+        if (!drawing) return;
+        inFlight = true;
+        lastPredictAt = Date.now();
+        statusEl.textContent = "Predicting...";
+
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/png")
+        );
+        const formData = new FormData();
+        formData.append("files", blob, "digit.png");
+
+        const backend = backendSelect.value;
+        const model = encodeURIComponent(modelInput.value.trim());
+        const url = `/predict?backend=${backend}&model=${model}`;
+
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Request failed");
+          }
+
+          const data = await response.json();
+          const output = data.outputs[0];
+          const prediction = data.predictions[0];
+
+          const top = output
+            .map((value, idx) => ({ idx, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 3);
+
+          resultEl.innerHTML = `
+            <strong>Prediction: ${prediction}</strong>
+            Top scores: ${top
+              .map((t) => `${t.idx} (${t.value.toFixed(3)})`)
+              .join(", ")}
+          `;
+          statusEl.textContent = `Backend: ${data.backend}, Batch: ${data.batch_size}`;
+        } catch (err) {
+          statusEl.textContent = "Error running inference.";
+          resultEl.textContent = String(err);
+        } finally {
+          inFlight = false;
+          if (pending) {
+            pending = false;
+            schedulePredict();
+          }
+        }
+      }
+
+      canvas.addEventListener("mousedown", startDraw);
+      canvas.addEventListener("mousemove", draw);
+      canvas.addEventListener("mouseup", endDraw);
+      canvas.addEventListener("mouseleave", endDraw);
+      canvas.addEventListener("touchstart", (evt) => {
+        evt.preventDefault();
+        startDraw(evt);
+      });
+      canvas.addEventListener("touchmove", (evt) => {
+        evt.preventDefault();
+        draw(evt);
+      });
+      canvas.addEventListener("touchend", (evt) => {
+        evt.preventDefault();
+        endDraw();
+      });
+
+      clearBtn.addEventListener("click", () => {
+        ctx.fillStyle = "#fcfaf6";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        resultEl.innerHTML = "<strong>—</strong> Draw a digit to see live predictions.";
+        statusEl.textContent = "Canvas cleared.";
+      });
+
+      predictBtn.addEventListener("click", async () => {
+        if (!drawing) {
+          statusEl.textContent = "Draw on the canvas to trigger predictions.";
+          return;
+        }
+        schedulePredict();
+      });
+    </script>
+  </body>
+</html>
