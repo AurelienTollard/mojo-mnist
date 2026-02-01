@@ -4,15 +4,16 @@ from pathlib import Path
 from typing import Callable, cast
 
 import torch
-from .mnist import download_training_set, download_validation_set
-from torch import nn, optim
+from torch import Tensor, empty, nn, optim
 from torch.utils.data import DataLoader
 
 from mojo_mnist.ops.linear import linear, linear_relu
 
+from .mnist import download_training_set, download_validation_set
+
 LOGGER = getLogger(__name__)
 
-LinearFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], None]
+LinearFn = Callable[[Tensor, Tensor, Tensor, Tensor], None]
 
 # Hyperparameters
 BATCH_SIZE = 64
@@ -35,7 +36,7 @@ class MLP(nn.Module):
             nn.Linear(hidden_size, num_classes),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         x = self.flatten(x)
         return self.layers(x)
 
@@ -55,33 +56,26 @@ class MojoMLP(nn.Module):
         self._linear = cast(LinearFn, linear)
 
         # Store weights as buffers so .to(device) moves them
-        self.register_buffer("w1_t", torch.empty(input_size, hidden_size))
-        self.register_buffer("b1", torch.empty(hidden_size))
-        self.register_buffer("w2_t", torch.empty(hidden_size, hidden_size))
-        self.register_buffer("b2", torch.empty(hidden_size))
-        self.register_buffer("w3_t", torch.empty(hidden_size, num_classes))
-        self.register_buffer("b3", torch.empty(num_classes))
+        self.register_buffer("w1_t", empty(input_size, hidden_size))
+        self.register_buffer("b1", empty(hidden_size))
+        self.register_buffer("w2_t", empty(hidden_size, hidden_size))
+        self.register_buffer("b2", empty(hidden_size))
+        self.register_buffer("w3_t", empty(hidden_size, num_classes))
+        self.register_buffer("b3", empty(num_classes))
 
     def load_from_mlp(self, mlp: MLP) -> None:
         layer1 = cast(nn.Linear, mlp.layers[0])
         layer2 = cast(nn.Linear, mlp.layers[2])
         layer3 = cast(nn.Linear, mlp.layers[4])
 
-        w1 = layer1.weight.detach()
-        b1 = layer1.bias.detach()
-        w2 = layer2.weight.detach()
-        b2 = layer2.bias.detach()
-        w3 = layer3.weight.detach()
-        b3 = layer3.bias.detach()
+        self.w1_t.copy_(layer1.weight.t().contiguous())
+        self.b1.copy_(layer1.bias)
+        self.w2_t.copy_(layer2.weight.t().contiguous())
+        self.b2.copy_(layer2.bias)
+        self.w3_t.copy_(layer3.weight.t().contiguous())
+        self.b3.copy_(layer3.bias)
 
-        self.w1_t.copy_(w1.t().contiguous())
-        self.b1.copy_(b1)
-        self.w2_t.copy_(w2.t().contiguous())
-        self.b2.copy_(b2)
-        self.w3_t.copy_(w3.t().contiguous())
-        self.b3.copy_(b3)
-
-    def load_from_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
+    def load_from_state_dict(self, state_dict: dict[str, Tensor]) -> None:
         self.w1_t.copy_(state_dict["layers.0.weight"].t().contiguous())
         self.b1.copy_(state_dict["layers.0.bias"])
         self.w2_t.copy_(state_dict["layers.2.weight"].t().contiguous())
@@ -89,23 +83,17 @@ class MojoMLP(nn.Module):
         self.w3_t.copy_(state_dict["layers.4.weight"].t().contiguous())
         self.b3.copy_(state_dict["layers.4.bias"])
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         x = self.flatten(x)
         batch_size = x.shape[0]
 
-        hidden1 = torch.empty(
-            batch_size, self.hidden_size, device=x.device, dtype=x.dtype
-        )
+        hidden1 = empty(batch_size, self.hidden_size, device=x.device, dtype=x.dtype)
         self._linear_relu(hidden1, x, self.w1_t, self.b1)
 
-        hidden2 = torch.empty(
-            batch_size, self.hidden_size, device=x.device, dtype=x.dtype
-        )
+        hidden2 = empty(batch_size, self.hidden_size, device=x.device, dtype=x.dtype)
         self._linear_relu(hidden2, hidden1, self.w2_t, self.b2)
 
-        output = torch.empty(
-            batch_size, self.num_classes, device=x.device, dtype=x.dtype
-        )
+        output = empty(batch_size, self.num_classes, device=x.device, dtype=x.dtype)
         self._linear(output, hidden2, self.w3_t, self.b3)
 
         return output
@@ -197,15 +185,6 @@ def run_training(export_path: str) -> None:
 
     LOGGER.info("Evaluating on test set...")
     test_accuracy = evaluate(model, test_loader, criterion, device)
-
-    if device.type == "cuda" and linear_relu is not None and linear is not None:
-        LOGGER.info("Evaluating MojoMLP on test set...")
-        mojo_model = MojoMLP(hidden_size=HIDDEN_SIZE).to(device)
-        mojo_model.load_from_mlp(model)
-        mojo_accuracy = evaluate(mojo_model, test_loader, criterion, device)
-        LOGGER.info("MojoMLP test accuracy %.2f%%", mojo_accuracy)
-    else:
-        LOGGER.info("Skipping MojoMLP evaluation (CUDA or Mojo ops unavailable)")
 
     torch.save(model.state_dict(), export_path)
     LOGGER.info("Model saved to %s", export_path)

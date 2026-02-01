@@ -1,534 +1,541 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mojo MNIST Canvas</title>
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
-    />
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #f6f2ea;
-        --bg-accent: #e9dfd0;
-        --card: #ffffff;
-        --ink: #1b1a17;
-        --muted: #5a5147;
-        --accent: #d87b43;
-        --accent-dark: #b65d2a;
-        --border: #e4d7c3;
-        --shadow: 0 20px 45px rgba(32, 24, 16, 0.12);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
-        background: radial-gradient(
-            circle at top left,
-            rgba(216, 123, 67, 0.12),
-            transparent 50%
-          ),
-          radial-gradient(
-            circle at 30% 10%,
-            rgba(91, 141, 163, 0.12),
-            transparent 55%
-          ),
-          var(--bg);
-        color: var(--ink);
-        min-height: 100vh;
-      }
-
-      header {
-        padding: 32px 20px 10px;
-        text-align: center;
-      }
-
-      header h1 {
-        margin: 0 0 6px;
-        font-size: clamp(24px, 4vw, 36px);
-        letter-spacing: -0.02em;
-      }
-
-      header p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 15px;
-      }
-
-      main {
-        display: grid;
-        gap: 24px;
-        padding: 24px;
-        max-width: 980px;
-        margin: 0 auto 40px;
-      }
-
-      .panel {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 20px;
-        box-shadow: var(--shadow);
-        padding: 24px;
-        display: grid;
-        gap: 16px;
-        animation: fadeIn 0.6s ease;
-      }
-
-      .grid {
-        display: grid;
-        gap: 18px;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      }
-
-      canvas {
-        width: 280px;
-        height: 280px;
-        border-radius: 18px;
-        border: 2px solid var(--border);
-        background: #000000;
-        justify-self: center;
-        touch-action: none;
-        image-rendering: pixelated;
-        cursor: crosshair;
-      }
-
-      .controls {
-        display: grid;
-        gap: 12px;
-      }
-
-      label {
-        font-size: 13px;
-        color: var(--muted);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      select,
-      input[type="text"] {
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        font-family: "IBM Plex Mono", monospace;
-        font-size: 13px;
-        color: var(--ink);
-        background: #fffdf9;
-      }
-
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        color: var(--muted);
-      }
-
-      .buttons {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-
-      button {
-        padding: 10px 16px;
-        border-radius: 12px;
-        border: none;
-        font-weight: 600;
-        cursor: pointer;
-        background: var(--accent);
-        color: white;
-        transition: transform 0.2s ease, background 0.2s ease;
-      }
-
-      button.secondary {
-        background: #f0e5d6;
-        color: var(--ink);
-      }
-
-      button:hover {
-        transform: translateY(-1px);
-        background: var(--accent-dark);
-      }
-
-      button.secondary:hover {
-        background: #e7d7c5;
-      }
-
-      .result {
-        background: var(--bg-accent);
-        border-radius: 14px;
-        padding: 16px;
-        font-family: "IBM Plex Mono", monospace;
-        font-size: 13px;
-        color: #2d241b;
-      }
-
-      .result strong {
-        font-size: 22px;
-        display: block;
-        margin-bottom: 8px;
-      }
-
-      .status {
-        font-size: 13px;
-        color: var(--muted);
-      }
-
-      .prob-grid {
-        display: grid;
-        gap: 8px;
-        margin-top: 16px;
-      }
-
-      .prob-row {
-        display: grid;
-        grid-template-columns: 24px 1fr 56px;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .prob-label {
-        font-weight: 700;
-        color: var(--muted);
-        text-align: right;
-      }
-
-      .prob-track {
-        position: relative;
-        height: 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.6);
-        overflow: hidden;
-        border: 1px solid rgba(90, 81, 71, 0.2);
-      }
-
-      .prob-fill {
-        height: 100%;
-        width: 0%;
-        border-radius: inherit;
-        background: linear-gradient(90deg, #d87b43, #f2b66e);
-        transition: width 0.2s ease;
-      }
-
-      .prob-value {
-        font-size: 12px;
-        text-align: right;
-        color: var(--muted);
-      }
-
-      .prob-row.is-top .prob-label {
-        color: var(--accent-dark);
-      }
-
-      .prob-row.is-top .prob-fill {
-        background: linear-gradient(90deg, #b65d2a, #f27d59);
-      }
-
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      @media (max-width: 600px) {
-        canvas {
-          width: 240px;
-          height: 240px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <h1>Mojo MNIST Canvas</h1>
-      <p>Draw a digit and let the model guess it in real time.</p>
-    </header>
-
-    <main>
-      <section class="panel grid">
-        <div class="controls">
-          <label for="backend">Backend</label>
-          <select id="backend">
-            <option value="mojo" selected>mojo (GPU)</option>
-            <option value="pytorch">pytorch</option>
-          </select>
-
-          <label for="model">Model path</label>
-          <input
-            id="model"
-            type="text"
-            value=".data/mlp_mnist.pth"
-            autocomplete="off"
-          />
-
-          <div class="buttons">
-            <button id="predictBtn">Predict</button>
-            <button id="clearBtn" class="secondary">Clear</button>
-          </div>
-
-          <div class="status" id="status">Ready.</div>
-        </div>
-
-        <div>
-          <canvas id="canvas" width="28" height="28"></canvas>
-        </div>
-      </section>
-
-      <section class="panel">
-          <div class="result" id="result">
-            <div id="summary">
-              <strong>—</strong>
-              Draw a digit on the 28×28 grid to see live predictions.
-            </div>
-            <div class="prob-grid" id="probGrid"></div>
-          </div>
-      </section>
-    </main>
-
-    <script>
-      const canvas = document.getElementById("canvas");
-      const ctx = canvas.getContext("2d");
-      const predictBtn = document.getElementById("predictBtn");
-      const clearBtn = document.getElementById("clearBtn");
-      const backendSelect = document.getElementById("backend");
-      const modelInput = document.getElementById("model");
-      const resultEl = document.getElementById("result");
-      const summaryEl = document.getElementById("summary");
-      const statusEl = document.getElementById("status");
-      const probGrid = document.getElementById("probGrid");
-
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.lineWidth = 2.2;
-      ctx.lineCap = "round";
-      ctx.strokeStyle = "#ffffff";
-
-      let drawing = false;
-      let predictTimer = null;
-      let inFlight = false;
-      let pending = false;
-      let lastPredictAt = 0;
-      const debounceMs = 100;
-      const probRows = new Map();
-
-      function buildProbGrid() {
-        for (let digit = 0; digit < 10; digit += 1) {
-          const row = document.createElement("div");
-          row.className = "prob-row";
-          row.dataset.digit = String(digit);
-
-          const label = document.createElement("div");
-          label.className = "prob-label";
-          label.textContent = String(digit);
-
-          const track = document.createElement("div");
-          track.className = "prob-track";
-
-          const fill = document.createElement("div");
-          fill.className = "prob-fill";
-          track.appendChild(fill);
-
-          const value = document.createElement("div");
-          value.className = "prob-value";
-          value.textContent = "0.000";
-
-          row.appendChild(label);
-          row.appendChild(track);
-          row.appendChild(value);
-          probGrid.appendChild(row);
-
-          probRows.set(digit, { row, fill, value });
-        }
-      }
-
-      function resetProbs() {
-        probRows.forEach(({ row, fill, value }) => {
-          row.classList.remove("is-top");
-          fill.style.width = "0%";
-          value.textContent = "0.000";
-        });
-      }
-
-      buildProbGrid();
-
-      function getPos(evt) {
-        const rect = canvas.getBoundingClientRect();
-        const clientX = evt.clientX;
-        const clientY = evt.clientY;
-        return {
-          x: ((clientX - rect.left) / rect.width) * canvas.width,
-          y: ((clientY - rect.top) / rect.height) * canvas.height,
-        };
-      }
-
-      function startDraw(evt) {
-        drawing = true;
-        if (canvas.setPointerCapture) {
-          canvas.setPointerCapture(evt.pointerId);
-        }
-        const pos = getPos(evt);
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        schedulePredict();
-      }
-
-      function draw(evt) {
-        if (!drawing) return;
-        const pos = getPos(evt);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-        schedulePredict();
-      }
-
-      function endDraw(evt) {
-        drawing = false;
-        ctx.closePath();
-        if (canvas.releasePointerCapture && evt && evt.pointerId !== undefined) {
-          canvas.releasePointerCapture(evt.pointerId);
-        }
-      }
-
-      function schedulePredict() {
-        if (!drawing) return;
-        const now = Date.now();
-        const elapsed = now - lastPredictAt;
-
-        if (inFlight) {
-          pending = true;
-          return;
-        }
-
-        if (elapsed >= debounceMs) {
-          runPredict();
-          return;
-        }
-
-        if (predictTimer) return;
-        predictTimer = setTimeout(() => {
-          predictTimer = null;
-          if (!drawing) return;
-          if (inFlight) {
-            pending = true;
-            return;
-          }
-          runPredict();
-        }, debounceMs - elapsed);
-      }
-
-      async function runPredict() {
-        if (!drawing) return;
-        inFlight = true;
-        lastPredictAt = Date.now();
-        statusEl.textContent = "Predicting...";
-
-        const blob = await new Promise((resolve) =>
-          canvas.toBlob(resolve, "image/png")
-        );
-        const formData = new FormData();
-        formData.append("files", blob, "digit.png");
-
-        const backend = backendSelect.value;
-        const model = encodeURIComponent(modelInput.value.trim());
-        const url = `/predict?backend=${backend}&model=${model}`;
-
-        try {
-          const response = await fetch(url, {
-            method: "POST",
-            body: formData,
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || "Request failed");
-          }
-
-          const data = await response.json();
-          const output = data.outputs[0];
-          const prediction = data.predictions[0];
-
-          const top = output
-            .map((value, idx) => ({ idx, value }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 3);
-
-          summaryEl.innerHTML = `
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Mojo MNIST Canvas</title>
+        <style>
+            :root {
+                color-scheme: light;
+                --bg: #f6f2ea;
+                --bg-accent: #e9dfd0;
+                --card: #ffffff;
+                --ink: #1b1a17;
+                --muted: #5a5147;
+                --accent: #d87b43;
+                --accent-dark: #b65d2a;
+                --border: #e4d7c3;
+                --shadow: 0 20px 45px rgba(32, 24, 16, 0.12);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                font-family: "Space Grotesk", "Segoe UI", sans-serif;
+                background:
+                    radial-gradient(
+                        circle at top left,
+                        rgba(216, 123, 67, 0.12),
+                        transparent 50%
+                    ),
+                    radial-gradient(
+                        circle at 30% 10%,
+                        rgba(91, 141, 163, 0.12),
+                        transparent 55%
+                    ),
+                    var(--bg);
+                color: var(--ink);
+                min-height: 100vh;
+            }
+
+            header {
+                padding: 32px 20px 10px;
+                text-align: center;
+            }
+
+            header h1 {
+                margin: 0 0 6px;
+                font-size: clamp(24px, 4vw, 36px);
+                letter-spacing: -0.02em;
+            }
+
+            header p {
+                margin: 0;
+                color: var(--muted);
+                font-size: 15px;
+            }
+
+            main {
+                display: grid;
+                gap: 24px;
+                padding: 24px;
+                max-width: 980px;
+                margin: 0 auto 40px;
+            }
+
+            .panel {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                box-shadow: var(--shadow);
+                padding: 24px;
+                display: grid;
+                gap: 16px;
+                animation: fadeIn 0.6s ease;
+            }
+
+            .grid {
+                display: grid;
+                gap: 18px;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            }
+
+            canvas {
+                width: 280px;
+                height: 280px;
+                border-radius: 18px;
+                border: 2px solid var(--border);
+                background: #000000;
+                justify-self: center;
+                touch-action: none;
+                image-rendering: pixelated;
+                cursor: crosshair;
+            }
+
+            .controls {
+                display: grid;
+                gap: 12px;
+            }
+
+            label {
+                font-size: 13px;
+                color: var(--muted);
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+            }
+
+            select,
+            input[type="text"] {
+                width: 100%;
+                padding: 10px 12px;
+                border-radius: 12px;
+                border: 1px solid var(--border);
+                font-family: "IBM Plex Mono", monospace;
+                font-size: 13px;
+                color: var(--ink);
+                background: #fffdf9;
+            }
+
+            .row {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .toggle {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .buttons {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            button {
+                padding: 10px 16px;
+                border-radius: 12px;
+                border: none;
+                font-weight: 600;
+                cursor: pointer;
+                background: var(--accent);
+                color: white;
+                transition:
+                    transform 0.2s ease,
+                    background 0.2s ease;
+            }
+
+            button.secondary {
+                background: #f0e5d6;
+                color: var(--ink);
+            }
+
+            button:hover {
+                transform: translateY(-1px);
+                background: var(--accent-dark);
+            }
+
+            button.secondary:hover {
+                background: #e7d7c5;
+            }
+
+            .result {
+                background: var(--bg-accent);
+                border-radius: 14px;
+                padding: 16px;
+                font-family: "IBM Plex Mono", monospace;
+                font-size: 13px;
+                color: #2d241b;
+            }
+
+            .result strong {
+                font-size: 22px;
+                display: block;
+                margin-bottom: 8px;
+            }
+
+            .status {
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .prob-grid {
+                display: grid;
+                gap: 8px;
+                margin-top: 16px;
+            }
+
+            .prob-row {
+                display: grid;
+                grid-template-columns: 24px 1fr 56px;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .prob-label {
+                font-weight: 700;
+                color: var(--muted);
+                text-align: right;
+            }
+
+            .prob-track {
+                position: relative;
+                height: 12px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.6);
+                overflow: hidden;
+                border: 1px solid rgba(90, 81, 71, 0.2);
+            }
+
+            .prob-fill {
+                height: 100%;
+                width: 0%;
+                border-radius: inherit;
+                background: linear-gradient(90deg, #d87b43, #f2b66e);
+                transition: width 0.2s ease;
+            }
+
+            .prob-value {
+                font-size: 12px;
+                text-align: right;
+                color: var(--muted);
+            }
+
+            .prob-row.is-top .prob-label {
+                color: var(--accent-dark);
+            }
+
+            .prob-row.is-top .prob-fill {
+                background: linear-gradient(90deg, #b65d2a, #f27d59);
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @media (max-width: 600px) {
+                canvas {
+                    width: 240px;
+                    height: 240px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Mojo MNIST Canvas</h1>
+            <p>Draw a digit and let the model guess it in real time.</p>
+        </header>
+
+        <main>
+            <section class="panel grid">
+                <div class="controls">
+                    <label for="backend">Backend</label>
+                    <select id="backend">
+                        <option value="mojo" selected>mojo (GPU)</option>
+                        <option value="pytorch">pytorch</option>
+                    </select>
+
+                    <label for="model">Model path</label>
+                    <input
+                        id="model"
+                        type="text"
+                        value=".data/mlp_mnist.pth"
+                        autocomplete="off"
+                    />
+
+                    <div class="buttons">
+                        <button id="predictBtn">Predict</button>
+                        <button id="clearBtn" class="secondary">Clear</button>
+                    </div>
+
+                    <div class="status" id="status">Ready.</div>
+                </div>
+
+                <div>
+                    <canvas id="canvas" width="28" height="28"></canvas>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="result" id="result">
+                    <div id="summary">
+                        <strong>—</strong>
+                        Draw a digit on the 28×28 grid to see live predictions.
+                    </div>
+                    <div class="prob-grid" id="probGrid"></div>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            const canvas = document.getElementById("canvas");
+            const ctx = canvas.getContext("2d");
+            const predictBtn = document.getElementById("predictBtn");
+            const clearBtn = document.getElementById("clearBtn");
+            const backendSelect = document.getElementById("backend");
+            const modelInput = document.getElementById("model");
+            const resultEl = document.getElementById("result");
+            const summaryEl = document.getElementById("summary");
+            const statusEl = document.getElementById("status");
+            const probGrid = document.getElementById("probGrid");
+
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 2.2;
+            ctx.lineCap = "round";
+            ctx.strokeStyle = "#ffffff";
+
+            let drawing = false;
+            let predictTimer = null;
+            let inFlight = false;
+            let pending = false;
+            let lastPredictAt = 0;
+            const debounceMs = 100;
+            const probRows = new Map();
+
+            function buildProbGrid() {
+                for (let digit = 0; digit < 10; digit += 1) {
+                    const row = document.createElement("div");
+                    row.className = "prob-row";
+                    row.dataset.digit = String(digit);
+
+                    const label = document.createElement("div");
+                    label.className = "prob-label";
+                    label.textContent = String(digit);
+
+                    const track = document.createElement("div");
+                    track.className = "prob-track";
+
+                    const fill = document.createElement("div");
+                    fill.className = "prob-fill";
+                    track.appendChild(fill);
+
+                    const value = document.createElement("div");
+                    value.className = "prob-value";
+                    value.textContent = "0.000";
+
+                    row.appendChild(label);
+                    row.appendChild(track);
+                    row.appendChild(value);
+                    probGrid.appendChild(row);
+
+                    probRows.set(digit, { row, fill, value });
+                }
+            }
+
+            function resetProbs() {
+                probRows.forEach(({ row, fill, value }) => {
+                    row.classList.remove("is-top");
+                    fill.style.width = "0%";
+                    value.textContent = "0.000";
+                });
+            }
+
+            buildProbGrid();
+
+            function getPos(evt) {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = evt.clientX;
+                const clientY = evt.clientY;
+                return {
+                    x: ((clientX - rect.left) / rect.width) * canvas.width,
+                    y: ((clientY - rect.top) / rect.height) * canvas.height,
+                };
+            }
+
+            function startDraw(evt) {
+                drawing = true;
+                if (canvas.setPointerCapture) {
+                    canvas.setPointerCapture(evt.pointerId);
+                }
+                const pos = getPos(evt);
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y);
+                schedulePredict();
+            }
+
+            function draw(evt) {
+                if (!drawing) return;
+                const pos = getPos(evt);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.stroke();
+                schedulePredict();
+            }
+
+            function endDraw(evt) {
+                drawing = false;
+                ctx.closePath();
+                if (
+                    canvas.releasePointerCapture &&
+                    evt &&
+                    evt.pointerId !== undefined
+                ) {
+                    canvas.releasePointerCapture(evt.pointerId);
+                }
+            }
+
+            function schedulePredict() {
+                if (!drawing) return;
+                const now = Date.now();
+                const elapsed = now - lastPredictAt;
+
+                if (inFlight) {
+                    pending = true;
+                    return;
+                }
+
+                if (elapsed >= debounceMs) {
+                    runPredict();
+                    return;
+                }
+
+                if (predictTimer) return;
+                predictTimer = setTimeout(() => {
+                    predictTimer = null;
+                    if (!drawing) return;
+                    if (inFlight) {
+                        pending = true;
+                        return;
+                    }
+                    runPredict();
+                }, debounceMs - elapsed);
+            }
+
+            async function runPredict() {
+                if (!drawing) return;
+                inFlight = true;
+                lastPredictAt = Date.now();
+                statusEl.textContent = "Predicting...";
+
+                const blob = await new Promise((resolve) =>
+                    canvas.toBlob(resolve, "image/png"),
+                );
+                const formData = new FormData();
+                formData.append("files", blob, "digit.png");
+
+                const backend = backendSelect.value;
+                const model = encodeURIComponent(modelInput.value.trim());
+                const url = `/predict?backend=${backend}&model=${model}`;
+
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(errorText || "Request failed");
+                    }
+
+                    const data = await response.json();
+                    const output = data.outputs[0];
+                    const prediction = data.predictions[0];
+
+                    const top = output
+                        .map((value, idx) => ({ idx, value }))
+                        .sort((a, b) => b.value - a.value)
+                        .slice(0, 3);
+
+                    summaryEl.innerHTML = `
             <strong>Prediction: ${prediction}</strong>
             Top scores: ${top
-              .map((t) => `${t.idx} (${t.value.toFixed(3)})`)
-              .join(", ")}
+                .map((t) => `${t.idx} (${t.value.toFixed(3)})`)
+                .join(", ")}
           `;
-          statusEl.textContent = `Backend: ${data.backend}, Batch: ${data.batch_size}`;
+                    statusEl.textContent = `Backend: ${data.backend}, Batch: ${data.batch_size}`;
 
-          output.forEach((value, idx) => {
-            const entry = probRows.get(idx);
-            if (!entry) return;
-            const width = Math.max(2, Math.round(value * 100));
-            entry.fill.style.width = `${width}%`;
-            entry.value.textContent = value.toFixed(3);
-            entry.row.classList.toggle("is-top", idx === prediction);
-          });
-        } catch (err) {
-          statusEl.textContent = "Error running inference.";
-          summaryEl.textContent = String(err);
-        } finally {
-          inFlight = false;
-          if (pending) {
-            pending = false;
-            schedulePredict();
-          }
-        }
-      }
+                    output.forEach((value, idx) => {
+                        const entry = probRows.get(idx);
+                        if (!entry) return;
+                        const width = Math.max(2, Math.round(value * 100));
+                        entry.fill.style.width = `${width}%`;
+                        entry.value.textContent = value.toFixed(3);
+                        entry.row.classList.toggle(
+                            "is-top",
+                            idx === prediction,
+                        );
+                    });
+                } catch (err) {
+                    statusEl.textContent = "Error running inference.";
+                    summaryEl.textContent = String(err);
+                } finally {
+                    inFlight = false;
+                    if (pending) {
+                        pending = false;
+                        schedulePredict();
+                    }
+                }
+            }
 
-      canvas.addEventListener("pointerdown", (evt) => {
-        evt.preventDefault();
-        startDraw(evt);
-      });
-      canvas.addEventListener("pointermove", (evt) => {
-        if (!drawing) return;
-        draw(evt);
-      });
-      canvas.addEventListener("pointerup", (evt) => {
-        endDraw(evt);
-      });
-      canvas.addEventListener("pointercancel", (evt) => {
-        endDraw(evt);
-      });
+            canvas.addEventListener("pointerdown", (evt) => {
+                evt.preventDefault();
+                startDraw(evt);
+            });
+            canvas.addEventListener("pointermove", (evt) => {
+                if (!drawing) return;
+                draw(evt);
+            });
+            canvas.addEventListener("pointerup", (evt) => {
+                endDraw(evt);
+            });
+            canvas.addEventListener("pointercancel", (evt) => {
+                endDraw(evt);
+            });
 
-      clearBtn.addEventListener("click", () => {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        summaryEl.innerHTML = "<strong>—</strong> Draw a digit on the 28×28 grid to see live predictions.";
-        resetProbs();
-        statusEl.textContent = "Canvas cleared.";
-      });
+            clearBtn.addEventListener("click", () => {
+                ctx.fillStyle = "#000000";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                summaryEl.innerHTML =
+                    "<strong>—</strong> Draw a digit on the 28×28 grid to see live predictions.";
+                resetProbs();
+                statusEl.textContent = "Canvas cleared.";
+            });
 
-      predictBtn.addEventListener("click", async () => {
-        if (!drawing) {
-          statusEl.textContent = "Draw on the canvas to trigger predictions.";
-          return;
-        }
-        schedulePredict();
-      });
-    </script>
-  </body>
+            predictBtn.addEventListener("click", async () => {
+                if (!drawing) {
+                    statusEl.textContent =
+                        "Draw on the canvas to trigger predictions.";
+                    return;
+                }
+                schedulePredict();
+            });
+        </script>
+    </body>
 </html>

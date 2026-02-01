@@ -1,0 +1,23 @@
+# mojo-mnist
+
+MNIST MLP in PyTorch with optional Mojo kernels for inference. Includes a demo UI to draw digits and get predictions.
+
+## Training
+
+Run once to produce the weights file used by the demo:
+
+```bash
+pixi run mlp
+```
+
+This writes `.data/mlp_mnist.pth`.
+
+## Demo
+
+Start the server (serves the UI and the predict API):
+
+```bash
+pixi run demo
+```
+
+Open http://127.0.0.1:8000/ and draw a digit.
