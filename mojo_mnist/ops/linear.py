@@ -29,9 +29,7 @@ def linear_relu(
         )
 
     if bias.shape != (out_features,):
-        raise ValueError(
-            f"Bias shape {bias.shape} doesn't match ({out_features},)"
-        )
+        raise ValueError(f"Bias shape {bias.shape} doesn't match ({out_features},)")
 
     if output.shape != (batch_size, out_features):
         raise ValueError(
@@ -41,11 +39,7 @@ def linear_relu(
 
     # Ensure all tensors are on the same device
     device = input.device
-    if (
-        weight.device != device
-        or bias.device != device
-        or output.device != device
-    ):
+    if weight.device != device or bias.device != device or output.device != device:
         raise ValueError("All tensors must be on the same device")
 
     kernel = _mojo_ops.linear_relu[
@@ -56,7 +50,7 @@ def linear_relu(
         }
     ]
 
-    kernel(output, input, weight, bias)
+    kernel(output.detach(), input.detach(), weight.detach(), bias.detach())
 
 
 def linear(
@@ -71,28 +65,20 @@ def linear(
 
     if weight.shape != (in_features, out_features):
         raise ValueError(
-            f"Weight shape {weight.shape} doesn't match ({in_features},"
-            f" {out_features})"
+            f"Weight shape {weight.shape} doesn't match ({in_features}, {out_features})"
         )
 
     if bias.shape != (out_features,):
-        raise ValueError(
-            f"Bias shape {bias.shape} doesn't match ({out_features},)"
-        )
+        raise ValueError(f"Bias shape {bias.shape} doesn't match ({out_features},)")
 
     if output.shape != (batch_size, out_features):
         raise ValueError(
-            f"Output shape {output.shape} doesn't match ({batch_size},"
-            f" {out_features})"
+            f"Output shape {output.shape} doesn't match ({batch_size}, {out_features})"
         )
 
     # Ensure all tensors are on the same device
     device = input.device
-    if (
-        weight.device != device
-        or bias.device != device
-        or output.device != device
-    ):
+    if weight.device != device or bias.device != device or output.device != device:
         raise ValueError("All tensors must be on the same device")
 
     kernel = _mojo_ops.linear[
@@ -103,7 +89,7 @@ def linear(
         }
     ]
 
-    kernel(output, input, weight, bias)
+    kernel(output.detach(), input.detach(), weight.detach(), bias.detach())
 
 
 __all__ = ["linear_relu", "linear"]

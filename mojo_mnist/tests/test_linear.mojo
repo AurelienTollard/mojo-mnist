@@ -63,13 +63,13 @@ fn main() raises:
         # y layout: 2D row-major (BATCH_SIZE, OUT_FEATURES)
         comptime y_layout = Layout.row_major(BATCH_SIZE, OUT_FEATURES)
 
-        x_tensor = LayoutTensor[dtype, x_layout, ImmutAnyOrigin](
+        x_tensor = LayoutTensor[dtype, x_layout, MutAnyOrigin](
             x_buf.unsafe_ptr()
         )
-        w_tensor = LayoutTensor[dtype, w_layout, ImmutAnyOrigin](
+        w_tensor = LayoutTensor[dtype, w_layout, MutAnyOrigin](
             w_buf.unsafe_ptr()
         )
-        b_tensor = LayoutTensor[dtype, b_layout, ImmutAnyOrigin](
+        b_tensor = LayoutTensor[dtype, b_layout, MutAnyOrigin](
             b_buf.unsafe_ptr()
         )
         y_tensor = LayoutTensor[dtype, y_layout, MutAnyOrigin](

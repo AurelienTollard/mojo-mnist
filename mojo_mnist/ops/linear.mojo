@@ -23,27 +23,22 @@ fn _execute_linear_gpu[
         layout_b: Layout,
         layout_y: Layout,
     ] (
-        LayoutTensor[dtype, layout_x, ImmutAnyOrigin],
-        LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
-        LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
+        LayoutTensor[dtype, layout_x, MutAnyOrigin],
+        LayoutTensor[dtype, layout_w, MutAnyOrigin],
+        LayoutTensor[dtype, layout_b, MutAnyOrigin],
         LayoutTensor[dtype, layout_y, MutAnyOrigin],
     ) -> None,
 ](
-    output: OutputTensor[dtype=dtype, rank=2],
-    input: InputTensor[dtype=dtype, rank=2],
-    weight: InputTensor[dtype=dtype, rank=2],
-    bias: InputTensor[dtype=dtype, rank=1],
+    out_tensor: LayoutTensor[dtype, out_layout, MutAnyOrigin],
+    in_tensor: LayoutTensor[dtype, in_layout, MutAnyOrigin],
+    w_tensor: LayoutTensor[dtype, w_layout, MutAnyOrigin],
+    b_tensor: LayoutTensor[dtype, b_layout, MutAnyOrigin],
     ctx: DeviceContextPtr,
 ) raises:
     """Helper to execute linear kernel on GPU with proper grid/block setup.
 
     Dimensions are extracted at compile-time from layout parameters.
     """
-    out_tensor = output.to_layout_tensor()
-    in_tensor = input.to_layout_tensor()
-    w_tensor = weight.to_layout_tensor()
-    b_tensor = bias.to_layout_tensor()
-
     var gpu_ctx = ctx.get_device_context()
 
     comptime batch_size = Int(in_layout.shape[0])
@@ -98,10 +93,15 @@ struct LinearReLUCustomOp:
         ctx: DeviceContextPtr,
     ) raises:
         """Execute linear layer: Y = ReLU(X @ W + b)."""
-        comptime in_layout = Layout.row_major(batch_size, in_features)
-        comptime w_layout = Layout.row_major(in_features, out_features)
-        comptime b_layout = Layout.row_major(out_features)
-        comptime out_layout = Layout.row_major(batch_size, out_features)
+        out_tensor = output.to_layout_tensor()
+        in_tensor = input.to_layout_tensor()
+        w_tensor = weight.to_layout_tensor()
+        b_tensor = bias.to_layout_tensor()
+
+        comptime in_layout = in_tensor.layout
+        comptime w_layout = w_tensor.layout
+        comptime b_layout = b_tensor.layout
+        comptime out_layout = out_tensor.layout
 
         @parameter
         if target == "gpu":
@@ -112,7 +112,7 @@ struct LinearReLUCustomOp:
                 b_layout,
                 out_layout,
                 linear_relu_gpu_kernel,
-            ](output, input, weight, bias, ctx)
+            ](out_tensor, in_tensor, w_tensor, b_tensor, ctx)
         else:
             raise Error("Unsupported target: " + target)
 
@@ -136,10 +136,15 @@ struct LinearCustomOp:
         ctx: DeviceContextPtr,
     ) raises:
         """Execute linear layer: Y = X @ W + b (no activation)."""
-        comptime in_layout = Layout.row_major(batch_size, in_features)
-        comptime w_layout = Layout.row_major(in_features, out_features)
-        comptime b_layout = Layout.row_major(out_features)
-        comptime out_layout = Layout.row_major(batch_size, out_features)
+        out_tensor = output.to_layout_tensor()
+        in_tensor = input.to_layout_tensor()
+        w_tensor = weight.to_layout_tensor()
+        b_tensor = bias.to_layout_tensor()
+
+        comptime in_layout = in_tensor.layout
+        comptime w_layout = w_tensor.layout
+        comptime b_layout = b_tensor.layout
+        comptime out_layout = out_tensor.layout
 
         @parameter
         if target == "gpu":
@@ -150,6 +155,6 @@ struct LinearCustomOp:
                 b_layout,
                 out_layout,
                 linear_identity_gpu_kernel,
-            ](output, input, weight, bias, ctx)
+            ](out_tensor, in_tensor, w_tensor, b_tensor, ctx)
         else:
             raise Error("Unsupported target: " + target)

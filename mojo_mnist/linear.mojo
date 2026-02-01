@@ -16,9 +16,9 @@ fn linear_relu_gpu_kernel[
     layout_b: Layout,
     layout_y: Layout,
 ](
-    x: LayoutTensor[dtype, layout_x, ImmutAnyOrigin],
-    w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
-    b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
+    x: LayoutTensor[dtype, layout_x, MutAnyOrigin],
+    w: LayoutTensor[dtype, layout_w, MutAnyOrigin],
+    b: LayoutTensor[dtype, layout_b, MutAnyOrigin],
     y: LayoutTensor[dtype, layout_y, MutAnyOrigin],
 ):
     """Fused Linear + ReLU kernel.
@@ -43,9 +43,9 @@ fn linear_identity_gpu_kernel[
     layout_b: Layout,
     layout_y: Layout,
 ](
-    x: LayoutTensor[dtype, layout_x, ImmutAnyOrigin],
-    w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],
-    b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],
+    x: LayoutTensor[dtype, layout_x, MutAnyOrigin],
+    w: LayoutTensor[dtype, layout_w, MutAnyOrigin],
+    b: LayoutTensor[dtype, layout_b, MutAnyOrigin],
     y: LayoutTensor[dtype, layout_y, MutAnyOrigin],
 ):
     """Fused Linear kernel with identity activation.
@@ -71,9 +71,9 @@ fn linear_gpu_kernel_impl[
     layout_y: Layout,  # Output: (batch_size, out_features)
     activation: fn[dtype: DType] (x: Scalar[dtype]) -> Scalar[dtype],
 ](
-    x: LayoutTensor[dtype, layout_x, ImmutAnyOrigin],  # Input tensor
-    w: LayoutTensor[dtype, layout_w, ImmutAnyOrigin],  # Weight matrix
-    b: LayoutTensor[dtype, layout_b, ImmutAnyOrigin],  # Bias vector
+    x: LayoutTensor[dtype, layout_x, MutAnyOrigin],  # Input tensor
+    w: LayoutTensor[dtype, layout_w, MutAnyOrigin],  # Weight matrix
+    b: LayoutTensor[dtype, layout_b, MutAnyOrigin],  # Bias vector
     y: LayoutTensor[dtype, layout_y, MutAnyOrigin],  # Output tensor
 ):
     """Linear layer kernel with configurable activation.
