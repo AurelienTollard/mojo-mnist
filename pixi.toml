@@ -8,6 +8,7 @@ version = "0.1.0"
 [dependencies]
 python = "==3.12"
 mojo = "<1.0.0"
+modular = ">=26.2.0.dev2026012605,<27"
 
 [pypi-dependencies]
 numpy = ">=2.4.1, <3"
