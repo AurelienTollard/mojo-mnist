@@ -1,40 +1,28 @@
 from __future__ import annotations
 
 import io
+import sys
 from pathlib import Path
 from typing import Any, cast
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from PIL import Image
 
-from mlp import HIDDEN_SIZE, MLP, MojoMLP, get_device
-
-try:
-    from PIL import Image, ImageOps
-except Exception as exc:  # pragma: no cover - optional dependency
-    Image = None
-    ImageOps = None
-    _pil_import_error = exc
+from mojo_mnist.demo.mlp import HIDDEN_SIZE, MLP, MojoMLP, get_device
 
 app = FastAPI()
 
-DEFAULT_MODEL_PATH = Path(__file__).parent / ".data" / "mlp_mnist.pth"
-STATIC_DIR = Path(__file__).parent / "static"
-INDEX_FILE = STATIC_DIR / "index.html"
+DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / ".data" / "mlp_mnist.pth"
+DEMO_DIR = Path(__file__).parent
+INDEX_FILE = DEMO_DIR / "index.html"
 MODEL_CACHE: dict[tuple[str, str, str], torch.nn.Module] = {}
-
-
-def _ensure_pil() -> None:
-    if Image is None or ImageOps is None:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Pillow is required to decode images. Install 'pillow' "
-                "or send raw 28x28 grayscale bytes."
-            ),
-        ) from _pil_import_error
 
 
 def _load_model(
@@ -77,57 +65,18 @@ def _load_model(
 
 
 def _decode_image(contents: bytes) -> np.ndarray:
-    _ensure_pil()
     image_module = cast(Any, Image)
-    image_ops = cast(Any, ImageOps)
 
     with image_module.open(io.BytesIO(contents)) as img:
         img = img.convert("L")
-        # Invert to match MNIST (white digits on black background)
-        img = image_ops.invert(img)
+        if img.size != (28, 28):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Invalid image size {img.size}. Expected 28x28 pixels."),
+            )
         arr = np.asarray(img, dtype=np.float32) / 255.0
 
-    coords = np.argwhere(arr > 0.05)
-    if coords.size == 0:
-        return np.zeros((28 * 28,), dtype=np.float32)
-
-    y0, x0 = coords.min(axis=0)
-    y1, x1 = coords.max(axis=0) + 1
-    crop = arr[y0:y1, x0:x1]
-    height, width = crop.shape
-
-    if height == 0 or width == 0:
-        return np.zeros((28 * 28,), dtype=np.float32)
-
-    resample = (
-        image_module.Resampling.LANCZOS
-        if hasattr(image_module, "Resampling")
-        else image_module.LANCZOS
-    )
-
-    scale = 20.0 / float(max(height, width))
-    new_w = max(1, int(round(width * scale)))
-    new_h = max(1, int(round(height * scale)))
-
-    crop_img = image_module.fromarray((crop * 255).astype(np.uint8))
-    crop_img = crop_img.resize((new_w, new_h), resample=resample)
-    crop_arr = np.asarray(crop_img, dtype=np.float32) / 255.0
-
-    pad_y = 28 - new_h
-    pad_x = 28 - new_w
-    top = pad_y // 2
-    bottom = pad_y - top
-    left = pad_x // 2
-    right = pad_x - left
-
-    padded = np.pad(crop_arr, ((top, bottom), (left, right)), mode="constant")
-    if padded.shape != (28, 28):
-        padded = (
-            np.asarray(crop_img.resize((28, 28), resample=resample), dtype=np.float32)
-            / 255.0
-        )
-
-    return padded.reshape(-1)
+    return arr.reshape(-1)
 
 
 @app.get("/health")
@@ -163,6 +112,8 @@ async def predict(
         contents = await upload.read()
         try:
             images.append(_decode_image(contents))
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=400,

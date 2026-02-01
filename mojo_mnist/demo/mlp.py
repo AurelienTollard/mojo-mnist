@@ -2,12 +2,16 @@ from argparse import ArgumentParser
 from logging import INFO, basicConfig, getLogger
 from pathlib import Path
 from typing import Callable, Optional, cast
+import sys
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from mojo_mnist.demo import mnist
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
-
-import mnist
 
 LOGGER = getLogger(__name__)
 
@@ -18,7 +22,7 @@ linear: Optional[LinearFn]
 _mojo_import_error: Optional[Exception] = None
 
 try:
-    from mojo_mnist.ops.linear import linear_relu, linear
+    from mojo_mnist.ops.linear import linear, linear_relu
 except Exception as exc:  # pragma: no cover - optional dependency
     linear_relu = None
     linear = None

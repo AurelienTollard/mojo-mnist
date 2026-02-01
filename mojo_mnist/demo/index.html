@@ -91,9 +91,11 @@
         height: 280px;
         border-radius: 18px;
         border: 2px solid var(--border);
-        background: #fcfaf6;
+        background: #000000;
         justify-self: center;
         touch-action: none;
+        image-rendering: pixelated;
+        cursor: crosshair;
       }
 
       .controls {
@@ -186,6 +188,57 @@
         color: var(--muted);
       }
 
+      .prob-grid {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .prob-row {
+        display: grid;
+        grid-template-columns: 24px 1fr 56px;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .prob-label {
+        font-weight: 700;
+        color: var(--muted);
+        text-align: right;
+      }
+
+      .prob-track {
+        position: relative;
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.6);
+        overflow: hidden;
+        border: 1px solid rgba(90, 81, 71, 0.2);
+      }
+
+      .prob-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #d87b43, #f2b66e);
+        transition: width 0.2s ease;
+      }
+
+      .prob-value {
+        font-size: 12px;
+        text-align: right;
+        color: var(--muted);
+      }
+
+      .prob-row.is-top .prob-label {
+        color: var(--accent-dark);
+      }
+
+      .prob-row.is-top .prob-fill {
+        background: linear-gradient(90deg, #b65d2a, #f27d59);
+      }
+
+
       @keyframes fadeIn {
         from {
           opacity: 0;
@@ -237,14 +290,17 @@
         </div>
 
         <div>
-          <canvas id="canvas" width="280" height="280"></canvas>
+          <canvas id="canvas" width="28" height="28"></canvas>
         </div>
       </section>
 
       <section class="panel">
           <div class="result" id="result">
-            <strong>—</strong>
-            Draw a digit to see live predictions.
+            <div id="summary">
+              <strong>—</strong>
+              Draw a digit on the 28×28 grid to see live predictions.
+            </div>
+            <div class="prob-grid" id="probGrid"></div>
           </div>
       </section>
     </main>
@@ -257,13 +313,15 @@
       const backendSelect = document.getElementById("backend");
       const modelInput = document.getElementById("model");
       const resultEl = document.getElementById("result");
+      const summaryEl = document.getElementById("summary");
       const statusEl = document.getElementById("status");
+      const probGrid = document.getElementById("probGrid");
 
-      ctx.fillStyle = "#fcfaf6";
+      ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.lineWidth = 18;
+      ctx.lineWidth = 2.2;
       ctx.lineCap = "round";
-      ctx.strokeStyle = "#111";
+      ctx.strokeStyle = "#ffffff";
 
       let drawing = false;
       let predictTimer = null;
@@ -271,6 +329,47 @@
       let pending = false;
       let lastPredictAt = 0;
       const debounceMs = 100;
+      const probRows = new Map();
+
+      function buildProbGrid() {
+        for (let digit = 0; digit < 10; digit += 1) {
+          const row = document.createElement("div");
+          row.className = "prob-row";
+          row.dataset.digit = String(digit);
+
+          const label = document.createElement("div");
+          label.className = "prob-label";
+          label.textContent = String(digit);
+
+          const track = document.createElement("div");
+          track.className = "prob-track";
+
+          const fill = document.createElement("div");
+          fill.className = "prob-fill";
+          track.appendChild(fill);
+
+          const value = document.createElement("div");
+          value.className = "prob-value";
+          value.textContent = "0.000";
+
+          row.appendChild(label);
+          row.appendChild(track);
+          row.appendChild(value);
+          probGrid.appendChild(row);
+
+          probRows.set(digit, { row, fill, value });
+        }
+      }
+
+      function resetProbs() {
+        probRows.forEach(({ row, fill, value }) => {
+          row.classList.remove("is-top");
+          fill.style.width = "0%";
+          value.textContent = "0.000";
+        });
+      }
+
+      buildProbGrid();
 
       function getPos(evt) {
         const rect = canvas.getBoundingClientRect();
@@ -366,16 +465,25 @@
             .sort((a, b) => b.value - a.value)
             .slice(0, 3);
 
-          resultEl.innerHTML = `
+          summaryEl.innerHTML = `
             <strong>Prediction: ${prediction}</strong>
             Top scores: ${top
               .map((t) => `${t.idx} (${t.value.toFixed(3)})`)
               .join(", ")}
           `;
           statusEl.textContent = `Backend: ${data.backend}, Batch: ${data.batch_size}`;
+
+          output.forEach((value, idx) => {
+            const entry = probRows.get(idx);
+            if (!entry) return;
+            const width = Math.max(2, Math.round(value * 100));
+            entry.fill.style.width = `${width}%`;
+            entry.value.textContent = value.toFixed(3);
+            entry.row.classList.toggle("is-top", idx === prediction);
+          });
         } catch (err) {
           statusEl.textContent = "Error running inference.";
-          resultEl.textContent = String(err);
+          summaryEl.textContent = String(err);
         } finally {
           inFlight = false;
           if (pending) {
@@ -403,9 +511,10 @@
       });
 
       clearBtn.addEventListener("click", () => {
-        ctx.fillStyle = "#fcfaf6";
+        ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        resultEl.innerHTML = "<strong>—</strong> Draw a digit to see live predictions.";
+        summaryEl.innerHTML = "<strong>—</strong> Draw a digit on the 28×28 grid to see live predictions.";
+        resetProbs();
         statusEl.textContent = "Canvas cleared.";
       });
 
