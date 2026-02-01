@@ -22,4 +22,4 @@ pillow = "*"
 [tasks]
 dataset = { cmd = "pixi run python mnist.py", description = "Manage MNIST dataset" }
 mlp = { cmd = "pixi run python mlp.py", description = "Run MLP related commands"}
-demo = { cmd = "pixi run python mojo_mnist/demo/server.py", description = "Run demo related commands"}
+demo = { cmd = "pixi run python -m demo.server", description = "Run demo related commands"}
