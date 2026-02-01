@@ -8,7 +8,7 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor
 
 LOGGER = getLogger(__name__)
-DEFAULT_DATASET_PATH = Path(__file__).parent / ".data"
+DEFAULT_DATASET_PATH = Path(__file__).parent.parent / ".data"
 
 
 def download_validation_set(root: Path | str = DEFAULT_DATASET_PATH) -> Dataset:

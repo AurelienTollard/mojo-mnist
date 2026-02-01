@@ -10,7 +10,7 @@ Run once to produce the weights file used by the demo:
 pixi run mlp
 ```
 
-This writes `.data/mlp_mnist.pth`.
+This exports the model to `.data/mlp_mnist.pth`.
 
 ## Demo
 

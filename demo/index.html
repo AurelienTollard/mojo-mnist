@@ -265,6 +265,12 @@
         <main>
             <section class="panel grid">
                 <div class="controls">
+                    <label for="modelType">Model</label>
+                    <select id="modelType">
+                        <option value="mlp" selected>MLP</option>
+                        <option value="cnn">CNN</option>
+                    </select>
+
                     <label for="backend">Backend</label>
                     <select id="backend">
                         <option value="mojo" selected>mojo (GPU)</option>
@@ -308,6 +314,7 @@
             const ctx = canvas.getContext("2d");
             const predictBtn = document.getElementById("predictBtn");
             const clearBtn = document.getElementById("clearBtn");
+            const modelTypeSelect = document.getElementById("modelType");
             const backendSelect = document.getElementById("backend");
             const modelInput = document.getElementById("model");
             const resultEl = document.getElementById("result");
@@ -328,6 +335,25 @@
             let lastPredictAt = 0;
             const debounceMs = 100;
             const probRows = new Map();
+
+            function syncModelDefaults() {
+                if (modelTypeSelect.value === "cnn") {
+                    backendSelect.value = "pytorch";
+                    backendSelect.disabled = true;
+                    modelInput.value = ".data/cnn_mnist.pth";
+                } else {
+                    backendSelect.disabled = false;
+                    if (
+                        modelInput.value.trim() === "" ||
+                        modelInput.value.includes("cnn_mnist")
+                    ) {
+                        modelInput.value = ".data/mlp_mnist.pth";
+                    }
+                }
+            }
+
+            modelTypeSelect.addEventListener("change", syncModelDefaults);
+            syncModelDefaults();
 
             function buildProbGrid() {
                 for (let digit = 0; digit < 10; digit += 1) {
@@ -450,8 +476,9 @@
                 formData.append("files", blob, "digit.png");
 
                 const backend = backendSelect.value;
+                const modelType = modelTypeSelect.value;
                 const model = encodeURIComponent(modelInput.value.trim());
-                const url = `/predict?backend=${backend}&model=${model}`;
+                const url = `/predict?backend=${backend}&model_type=${modelType}&model=${model}`;
 
                 try {
                     const response = await fetch(url, {
