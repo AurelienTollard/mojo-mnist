@@ -150,5 +150,5 @@ fn main() raises:
             ),
             block_dim=(TILE_SIZE, TILE_SIZE),
         )
-        #
-        # ctx.synchronize()
+
+        ctx.synchronize()
