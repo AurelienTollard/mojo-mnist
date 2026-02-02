@@ -11,20 +11,20 @@ fn conv2d_gpu_kernel_impl[
     layout_input: Layout,  # Input: (batch_size, in_channels, height, width)
     layout_weights: Layout,  # Weights: (out_channels, in_channels, kernel_height, kernel_width)
     layout_bias: Layout,  # Bias: (out_channels,)
-    layout_kernel: Layout,  # Output: (batch_size, out_channels, kernel_height, kernel_width)
     layout_output: Layout,  # Output: (batch_size, out_channels, height, width)
     activation: fn[dtype: DType] (x: Scalar[dtype]) -> Scalar[dtype],
     tile_size: Int,
+    stride: Int,
+    padding: Int,
 ](
     input: LayoutTensor[dtype, layout_input, MutAnyOrigin],
     weights: LayoutTensor[dtype, layout_weights, MutAnyOrigin],
     bias: LayoutTensor[dtype, layout_bias, MutAnyOrigin],
-    kernel: LayoutTensor[dtype, layout_kernel, MutAnyOrigin],
     output: LayoutTensor[dtype, layout_output, MutAnyOrigin],
 ):
     """Convolution layer kernel with configurable activation.
 
-    Computes Y = activation(convolution(input, kernel) + bias).
+    Computes Y = activation(convolution(input, weights) + bias).
     Each thread computes a single output element for a single output channel.
     block = (TILE_SIZE, TILE_SIZE)
     grid = (ceil(height / TILE_SIZE), ceil(width / TILE_SIZE), batch * out_channels)
@@ -36,19 +36,26 @@ fn conv2d_gpu_kernel_impl[
     comptime height = Int(layout_input.shape[2])
     comptime width = Int(layout_input.shape[3])
 
-    comptime kernel_height = Int(layout_kernel.shape[2])
-    comptime kernel_width = Int(layout_kernel.shape[3])
+    comptime kernel_height = Int(layout_weights.shape[2])
+    comptime kernel_width = Int(layout_weights.shape[3])
     debug_assert(kernel_height == kernel_width, "Kernel height != width is not implemented")
-
-    comptime stride = Int(layout_kernel.shape[4])
     debug_assert(stride == 1, "Stride != 1 is not implemented")
-    comptime padding = Int(layout_kernel.shape[5]) # = halo
 
     comptime effective_tile_size = tile_size + kernel_width - 1
 
     depth_idx = Int(block_idx.z)
     out_channel_idx = depth_idx % out_channels
     batch_idx = Int(depth_idx // out_channels)
+
+    local_x = Int(thread_idx.x)
+    local_y = Int(thread_idx.y)
+    local_idx = Int(thread_idx.y * block_dim.x + thread_idx.x)
+
+    global_idx_x = Int(block_idx.x * tile_size + thread_idx.x)
+    global_idx_y = Int(block_idx.y * tile_size + thread_idx.y)
+
+    tile_origin_x = Int(block_idx.x) * tile_size - padding
+    tile_origin_y = Int(block_idx.y) * tile_size - padding
 
     # # Load in shared memory a tile containing the input data for the whole block
     input_shared = LayoutTensor[
@@ -60,25 +67,28 @@ fn conv2d_gpu_kernel_impl[
     # Load in shared memory a tile containing the kernel data for the whole block
     kernel_shared = LayoutTensor[
         dtype,
-        Layout.row_major(kernel_height, kernel_width),
+        Layout.row_major(in_channels, kernel_height, kernel_width),
         MutAnyOrigin,
         address_space = AddressSpace.SHARED,
     ].stack_allocation()
 
-    # Copy kernel and input data to shared memory
+    # Copy kernel and input data to shared memory. Assume kernel is small so its fine that thread 0 load it
     @parameter
     if local_idx == 0:
-        @parameter
-        for i in range(kernel_height):
+        for channel in range(in_channels):
             @parameter
-            for j in range(kernel_width):
-                kernel_shared[i, j] = kernel[i, j]
+            for i in range(kernel_height):
+                @parameter
+                for j in range(kernel_width):
+                    kernel_shared[channel, i, j] = kernel[channel, i, j]
 
-        @parameter
-        for i in range(effective_tile_size):
-            @parameter
-            for j in range(effective_tile_size):
-                input_shared[i, j] = input[i, j]
-
+    # each thread loads a tile containing the input data for the whole block
+    for channel in range(in_channels):
+        if 0 <= in_x < width and 0 <= in_y < height:
+            input_shared[channel, local_y, local_x] = input[
+                batch_idx, channel, global_idx_y + local_y, global_idx_x + local_x
+            ]
+        else:
+            input_shared[channel, local_y, local_x] = 0
 
     barrier()
