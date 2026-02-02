@@ -1,5 +1,6 @@
 from gpu.host import DeviceContext
 from layout import Layout, LayoutTensor
+from testing import assert_almost_equal
 from mojo_mnist.activation import identity_scalar
 from mojo_mnist.conv import conv2d_gpu_kernel_impl
 
@@ -67,24 +68,28 @@ fn main() raises:
             output_buf.unsafe_ptr()
         )
 
-        with input_buf.map_to_host() as input_host, weights_buf.map_to_host() as weights_host, bias_buf.map_to_host() as bias_host, expected_buf.map_to_host() as expected_host:
+        with input_buf.map_to_host() as input_host, weights_buf.map_to_host() as weights_host, bias_buf.map_to_host() as bias_host:
             for b in range(BATCH_SIZE):
                 for c in range(IN_CHANNELS):
                     for y in range(HEIGHT):
                         for x in range(WIDTH):
-                            idx = ((b * IN_CHANNELS + c) * HEIGHT + y) * WIDTH + x
-                            input_host[idx] = Float32((x + y + c + b) % 7) / Float32(7.0)
+                            idx = (
+                                (b * IN_CHANNELS + c) * HEIGHT + y
+                            ) * WIDTH + x
+                            input_host[idx] = Float32(
+                                (x + y + c + b) % 7
+                            ) / Float32(7.0)
 
             for oc in range(OUT_CHANNELS):
                 for ic in range(IN_CHANNELS):
                     for ky in range(KERNEL_SIZE):
                         for kx in range(KERNEL_SIZE):
                             idx = (
-                                ((oc * IN_CHANNELS + ic) * KERNEL_SIZE + ky)
-                                * KERNEL_SIZE
-                                + kx
-                            )
-                            weights_host[idx] = Float32((oc + ic + ky + kx) % 5) / Float32(5.0)
+                                (oc * IN_CHANNELS + ic) * KERNEL_SIZE + ky
+                            ) * KERNEL_SIZE + kx
+                            weights_host[idx] = Float32(
+                                (oc + ic + ky + kx) % 5
+                            ) / Float32(5.0)
 
             for oc in range(OUT_CHANNELS):
                 bias_host[oc] = Float32(oc) * Float32(0.01)
@@ -106,23 +111,23 @@ fn main() raises:
                                             and in_x < WIDTH
                                         ):
                                             input_idx = (
-                                                ((b * IN_CHANNELS + ic) * HEIGHT + in_y)
-                                                * WIDTH
-                                                + in_x
-                                            )
+                                                (b * IN_CHANNELS + ic) * HEIGHT
+                                                + in_y
+                                            ) * WIDTH + in_x
                                             weight_idx = (
-                                                ((oc * IN_CHANNELS + ic) * KERNEL_SIZE + ky)
+                                                (oc * IN_CHANNELS + ic)
                                                 * KERNEL_SIZE
-                                                + kx
+                                                + ky
+                                            ) * KERNEL_SIZE + kx
+                                            acc += (
+                                                input_host[input_idx]
+                                                * weights_host[weight_idx]
                                             )
-                                            acc += input_host[input_idx] * weights_host[weight_idx]
 
                             out_idx = (
-                                ((b * OUT_CHANNELS + oc) * OUT_HEIGHT + oy)
-                                * OUT_WIDTH
-                                + ox
-                            )
-                            expected_host[out_idx] = acc
+                                (b * OUT_CHANNELS + oc) * OUT_HEIGHT + oy
+                            ) * OUT_WIDTH + ox
+                            expected_buf[out_idx] = acc
 
         print("conv2d CPU reference computed")
 
@@ -152,3 +157,20 @@ fn main() raises:
         )
 
         ctx.synchronize()
+
+        with output_buf.map_to_host() as output_host:
+            for b in range(BATCH_SIZE):
+                for oc in range(OUT_CHANNELS):
+                    for oy in range(OUT_HEIGHT):
+                        for ox in range(OUT_WIDTH):
+                            idx = (
+                                (b * OUT_CHANNELS + oc) * OUT_HEIGHT + oy
+                            ) * OUT_WIDTH + ox
+                            assert_almost_equal(
+                                output_host[idx],
+                                expected_buf[idx],
+                                atol=1e-3,
+                                rtol=2e-2,
+                            )
+
+        print("✓ conv2d GPU matches CPU reference")

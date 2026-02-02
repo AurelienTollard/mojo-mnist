@@ -36,6 +36,9 @@ fn conv2d_gpu_kernel_impl[
     comptime height = Int(layout_input.shape[2])
     comptime width = Int(layout_input.shape[3])
 
+    comptime out_height = Int(layout_output.shape[2])
+    comptime out_width = Int(layout_output.shape[3])
+
     comptime kernel_height = Int(layout_weights.shape[2])
     comptime kernel_width = Int(layout_weights.shape[3])
     debug_assert(
@@ -57,10 +60,13 @@ fn conv2d_gpu_kernel_impl[
     tile_origin_x = Int(block_idx.x) * tile_size - padding
     tile_origin_y = Int(block_idx.y) * tile_size - padding
 
-    # # Load in shared memory a tile containing the input data for the whole block
+    global_idx_x = Int(block_idx.x) * tile_size + local_x
+    global_idx_y = Int(block_idx.y) * tile_size + local_y
+
+    # Load in shared memory a tile containing the input data for the whole block
     input_shared = LayoutTensor[
         dtype,
-        Layout.row_major(effective_tile_size, effective_tile_size),
+        Layout.row_major(in_channels, effective_tile_size, effective_tile_size),
         MutAnyOrigin,
         address_space = AddressSpace.SHARED,
     ].stack_allocation()
@@ -73,7 +79,6 @@ fn conv2d_gpu_kernel_impl[
     ].stack_allocation()
 
     # Copy kernel and input data to shared memory. Assume kernel is small so its fine that thread 0 load it
-    @parameter
     if local_idx == 0:
         for channel in range(in_channels):
 
@@ -82,12 +87,14 @@ fn conv2d_gpu_kernel_impl[
 
                 @parameter
                 for j in range(kernel_width):
-                    kernel_shared[channel, i, j] = kernel[channel, i, j]
+                    kernel_shared[channel, i, j] = weights[
+                        out_channel_idx, channel, i, j
+                    ]
 
     # each thread loads a tile containing the input data for the whole block
+    in_x = tile_origin_x + local_x
+    in_y = tile_origin_y + local_y
     for channel in range(in_channels):
-        in_x = tile_origin_x + local_x
-        in_y = tile_origin_y + local_y
         if 0 <= in_x < width and 0 <= in_y < height:
             input_shared[channel, local_y, local_x] = input[
                 batch_idx, channel, in_y, in_x
@@ -96,3 +103,23 @@ fn conv2d_gpu_kernel_impl[
             input_shared[channel, local_y, local_x] = 0
 
     barrier()
+
+    sum: output.element_type = 0
+    for channel in range(in_channels):
+        for i in range(kernel_height):
+            for j in range(kernel_width):
+                sum += (
+                    input_shared[channel, local_y + i, local_x + j]
+                    * kernel_shared[channel, i, j]
+                )
+
+    if (
+        batch_idx < batch_size
+        and out_channel_idx < out_channels
+        and global_idx_y < out_height
+        and global_idx_x < out_width
+    ):
+        result = sum + bias[out_channel_idx]
+        output[batch_idx, out_channel_idx, global_idx_y, global_idx_x] = activation[
+            dtype
+        ](rebind[Scalar[dtype]](result))
