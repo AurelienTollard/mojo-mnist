@@ -38,7 +38,10 @@ fn conv2d_gpu_kernel_impl[
 
     comptime kernel_height = Int(layout_weights.shape[2])
     comptime kernel_width = Int(layout_weights.shape[3])
-    debug_assert(kernel_height == kernel_width, "Kernel height != width is not implemented")
+    debug_assert(
+        kernel_height == kernel_width,
+        "Kernel height != width is not implemented",
+    )
     debug_assert(stride == 1, "Stride != 1 is not implemented")
 
     comptime effective_tile_size = tile_size + kernel_width - 1
@@ -50,9 +53,6 @@ fn conv2d_gpu_kernel_impl[
     local_x = Int(thread_idx.x)
     local_y = Int(thread_idx.y)
     local_idx = Int(thread_idx.y * block_dim.x + thread_idx.x)
-
-    global_idx_x = Int(block_idx.x * tile_size + thread_idx.x)
-    global_idx_y = Int(block_idx.y * tile_size + thread_idx.y)
 
     tile_origin_x = Int(block_idx.x) * tile_size - padding
     tile_origin_y = Int(block_idx.y) * tile_size - padding
@@ -76,17 +76,21 @@ fn conv2d_gpu_kernel_impl[
     @parameter
     if local_idx == 0:
         for channel in range(in_channels):
+
             @parameter
             for i in range(kernel_height):
+
                 @parameter
                 for j in range(kernel_width):
                     kernel_shared[channel, i, j] = kernel[channel, i, j]
 
     # each thread loads a tile containing the input data for the whole block
     for channel in range(in_channels):
+        in_x = tile_origin_x + local_x
+        in_y = tile_origin_y + local_y
         if 0 <= in_x < width and 0 <= in_y < height:
             input_shared[channel, local_y, local_x] = input[
-                batch_idx, channel, global_idx_y + local_y, global_idx_x + local_x
+                batch_idx, channel, in_y, in_x
             ]
         else:
             input_shared[channel, local_y, local_x] = 0
