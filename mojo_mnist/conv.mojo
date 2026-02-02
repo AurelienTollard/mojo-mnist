@@ -91,27 +91,30 @@ fn conv2d_gpu_kernel_impl[
                         out_channel_idx, channel, i, j
                     ]
 
-    # each thread loads a tile containing the input data for the whole block
-    in_x = tile_origin_x + local_x
-    in_y = tile_origin_y + local_y
+    # each thread loads a portion of the input tile (including halo)
     for channel in range(in_channels):
-        if 0 <= in_x < width and 0 <= in_y < height:
-            input_shared[channel, local_y, local_x] = input[
-                batch_idx, channel, in_y, in_x
-            ]
-        else:
-            input_shared[channel, local_y, local_x] = 0
+        for tile_y in range(local_y, effective_tile_size, Int(block_dim.y)):
+            in_y = tile_origin_y + tile_y
+            for tile_x in range(local_x, effective_tile_size, Int(block_dim.x)):
+                in_x = tile_origin_x + tile_x
+                if 0 <= in_x < width and 0 <= in_y < height:
+                    input_shared[channel, tile_y, tile_x] = input[
+                        batch_idx, channel, in_y, in_x
+                    ]
+                else:
+                    input_shared[channel, tile_y, tile_x] = 0
 
     barrier()
 
     sum: output.element_type = 0
-    for channel in range(in_channels):
-        for i in range(kernel_height):
-            for j in range(kernel_width):
-                sum += (
-                    input_shared[channel, local_y + i, local_x + j]
-                    * kernel_shared[channel, i, j]
-                )
+    if local_x < tile_size and local_y < tile_size:
+        for channel in range(in_channels):
+            for i in range(kernel_height):
+                for j in range(kernel_width):
+                    sum += (
+                        input_shared[channel, local_y + i, local_x + j]
+                        * kernel_shared[channel, i, j]
+                    )
 
     if (
         batch_idx < batch_size
