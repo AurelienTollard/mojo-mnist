@@ -1,12 +1,10 @@
-from gpu import thread_idx, block_idx, block_dim, barrier
+from gpu import thread_idx, block_idx, block_dim, barrier, grid_dim
 from gpu.memory import async_copy_wait_all
 from layout import Layout, LayoutTensor
 from layout.layout_tensor import copy_dram_to_sram_async
 from memory import AddressSpace
 from mojo_mnist.activation import relu_scalar, identity_scalar
 
-
-comptime TILE_SIZE = 32
 
 fn conv2d_gpu_kernel_impl[
     dtype: DType,
@@ -16,6 +14,7 @@ fn conv2d_gpu_kernel_impl[
     layout_kernel: Layout,  # Output: (batch_size, out_channels, kernel_height, kernel_width)
     layout_output: Layout,  # Output: (batch_size, out_channels, height, width)
     activation: fn[dtype: DType] (x: Scalar[dtype]) -> Scalar[dtype],
+    tile_size: Int,
 ](
     input: LayoutTensor[dtype, layout_input, MutAnyOrigin],
     weights: LayoutTensor[dtype, layout_weights, MutAnyOrigin],
@@ -27,13 +26,15 @@ fn conv2d_gpu_kernel_impl[
 
     Computes Y = activation(convolution(input, kernel) + bias).
     Each thread computes a single output element for a single output channel.
+    block = (TILE_SIZE, TILE_SIZE)
+    grid = (ceil(height / TILE_SIZE), ceil(width / TILE_SIZE), batch * out_channels)
     """
-    comptime batch_size = Int(layout_x.shape[0])
-    comptime in_channels = Int(layout_x.shape[1])
-    comptime out_channels = Int(layout_y.shape[1])
+    comptime batch_size = Int(layout_input.shape[0])
+    comptime in_channels = Int(layout_input.shape[1])
+    comptime out_channels = Int(layout_output.shape[1])
 
-    comptime height = Int(layout_x.shape[2])
-    comptime width = Int(layout_x.shape[3])
+    comptime height = Int(layout_input.shape[2])
+    comptime width = Int(layout_input.shape[3])
 
     comptime kernel_height = Int(layout_kernel.shape[2])
     comptime kernel_width = Int(layout_kernel.shape[3])
@@ -43,22 +44,13 @@ fn conv2d_gpu_kernel_impl[
     debug_assert(stride == 1, "Stride != 1 is not implemented")
     comptime padding = Int(layout_kernel.shape[5]) # = halo
 
-    comptime effective_tile_size = TILE_SIZE + kernel_width - 1
+    comptime effective_tile_size = tile_size + kernel_width - 1
 
-    # global_idx = Int(
-    #     thread_idx.x
-    #     + blockIdx.x * blockDim.x
-    #     + blockIdx.y * gridDim.x * blockDim.x
-    #     + blockIdx.z * gridDim.y * gridDim.x * blockDim.x
-    # )
-    # local_idx = Int(
-    #     thread_idx.x
-    #     + threadIdx.y * blockDim.x
-    #     + threadIdx.z * blockDim.y * blockDim.x
-    # )
-    batch_idx = Int(blockIdx.z)
+    depth_idx = Int(block_idx.z)
+    out_channel_idx = depth_idx % out_channels
+    batch_idx = Int(depth_idx // out_channels)
 
-    # Load in shared memory a tile containing the input data for the whole block
+    # # Load in shared memory a tile containing the input data for the whole block
     input_shared = LayoutTensor[
         dtype,
         Layout.row_major(effective_tile_size, effective_tile_size),
@@ -72,3 +64,21 @@ fn conv2d_gpu_kernel_impl[
         MutAnyOrigin,
         address_space = AddressSpace.SHARED,
     ].stack_allocation()
+
+    # Copy kernel and input data to shared memory
+    @parameter
+    if local_idx == 0:
+        @parameter
+        for i in range(kernel_height):
+            @parameter
+            for j in range(kernel_width):
+                kernel_shared[i, j] = kernel[i, j]
+
+        @parameter
+        for i in range(effective_tile_size):
+            @parameter
+            for j in range(effective_tile_size):
+                input_shared[i, j] = input[i, j]
+
+
+    barrier()
