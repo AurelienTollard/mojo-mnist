@@ -338,11 +338,8 @@
 
             function syncModelDefaults() {
                 if (modelTypeSelect.value === "cnn") {
-                    backendSelect.value = "pytorch";
-                    backendSelect.disabled = true;
                     modelInput.value = ".data/cnn_mnist.pth";
                 } else {
-                    backendSelect.disabled = false;
                     if (
                         modelInput.value.trim() === "" ||
                         modelInput.value.includes("cnn_mnist")

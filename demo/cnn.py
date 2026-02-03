@@ -1,12 +1,30 @@
 from argparse import ArgumentParser
 from logging import INFO, basicConfig, getLogger
 from pathlib import Path
+from typing import Callable, Optional, cast
 
 import torch
 from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 
 from .mnist import download_training_set, download_validation_set
+
+ConvFn = Callable[..., None]
+LinearFn = Callable[[Tensor, Tensor, Tensor, Tensor], None]
+
+conv2d_maxpool_relu: Optional[ConvFn]
+linear_relu: Optional[LinearFn]
+linear: Optional[LinearFn]
+_mojo_import_error: Optional[Exception] = None
+
+try:
+    from mojo_mnist.ops.conv import conv2d_maxpool_relu
+    from mojo_mnist.ops.linear import linear, linear_relu
+except Exception as exc:  # pragma: no cover - optional dependency
+    conv2d_maxpool_relu = None
+    linear_relu = None
+    linear = None
+    _mojo_import_error = exc
 
 LOGGER = getLogger(__name__)
 
@@ -37,6 +55,90 @@ class CNN(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = self.features(x)
         return self.classifier(x)
+
+
+class SimpleCNN(nn.Module):
+    def __init__(self, num_classes: int = 10) -> None:
+        super().__init__()
+        if conv2d_maxpool_relu is None or linear_relu is None or linear is None:
+            raise RuntimeError(
+                "Mojo ops are unavailable. Install the 'modular' package and "
+                "ensure mojo_mnist.ops.conv can be imported."
+            ) from _mojo_import_error
+
+        self._conv = cast(ConvFn, conv2d_maxpool_relu)
+        self._linear_relu = cast(LinearFn, linear_relu)
+        self._linear = cast(LinearFn, linear)
+
+        self.register_buffer("conv1_w", torch.empty(32, 1, 3, 3))
+        self.register_buffer("conv1_b", torch.empty(32))
+        self.register_buffer("conv2_w", torch.empty(64, 32, 3, 3))
+        self.register_buffer("conv2_b", torch.empty(64))
+        self.register_buffer("fc1_w_t", torch.empty(64 * 7 * 7, 128))
+        self.register_buffer("fc1_b", torch.empty(128))
+        self.register_buffer("fc2_w_t", torch.empty(128, num_classes))
+        self.register_buffer("fc2_b", torch.empty(num_classes))
+
+    def load_from_cnn(self, cnn: CNN) -> None:
+        conv1 = cast(nn.Conv2d, cnn.features[0])
+        conv2 = cast(nn.Conv2d, cnn.features[3])
+        fc1 = cast(nn.Linear, cnn.classifier[1])
+        fc2 = cast(nn.Linear, cnn.classifier[3])
+
+        self.conv1_w.copy_(conv1.weight.detach())
+        self.conv1_b.copy_(conv1.bias.detach())
+        self.conv2_w.copy_(conv2.weight.detach())
+        self.conv2_b.copy_(conv2.bias.detach())
+        self.fc1_w_t.copy_(fc1.weight.detach().t().contiguous())
+        self.fc1_b.copy_(fc1.bias.detach())
+        self.fc2_w_t.copy_(fc2.weight.detach().t().contiguous())
+        self.fc2_b.copy_(fc2.bias.detach())
+
+    def load_from_state_dict(self, state_dict: dict[str, Tensor]) -> None:
+        self.conv1_w.copy_(state_dict["features.0.weight"])
+        self.conv1_b.copy_(state_dict["features.0.bias"])
+        self.conv2_w.copy_(state_dict["features.3.weight"])
+        self.conv2_b.copy_(state_dict["features.3.bias"])
+        self.fc1_w_t.copy_(state_dict["classifier.1.weight"].t().contiguous())
+        self.fc1_b.copy_(state_dict["classifier.1.bias"])
+        self.fc2_w_t.copy_(state_dict["classifier.3.weight"].t().contiguous())
+        self.fc2_b.copy_(state_dict["classifier.3.bias"])
+
+    def forward(self, x: Tensor) -> Tensor:
+        batch_size = x.shape[0]
+        conv1_out = torch.empty(batch_size, 32, 14, 14, device=x.device, dtype=x.dtype)
+        self._conv(
+            conv1_out,
+            x,
+            self.conv1_w,
+            self.conv1_b,
+            stride=1,
+            padding=1,
+            pool_size=2,
+            pool_stride=2,
+            tile_size=16,
+        )
+
+        conv2_out = torch.empty(batch_size, 64, 7, 7, device=x.device, dtype=x.dtype)
+        self._conv(
+            conv2_out,
+            conv1_out,
+            self.conv2_w,
+            self.conv2_b,
+            stride=1,
+            padding=1,
+            pool_size=2,
+            pool_stride=2,
+            tile_size=16,
+        )
+
+        flat = conv2_out.reshape(batch_size, 64 * 7 * 7)
+        hidden = torch.empty(batch_size, 128, device=x.device, dtype=x.dtype)
+        self._linear_relu(hidden, flat, self.fc1_w_t, self.fc1_b)
+
+        output = torch.empty(batch_size, 10, device=x.device, dtype=x.dtype)
+        self._linear(output, hidden, self.fc2_w_t, self.fc2_b)
+        return output
 
 
 def get_device() -> torch.device:

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from .cnn import CNN
+from .cnn import CNN, SimpleCNN
 from .mlp import HIDDEN_SIZE, MLP, MojoMLP, get_device
 from PIL import Image
 
@@ -56,13 +56,22 @@ def _load_model(
                 detail=f"Unknown backend: {backend}",
             )
     elif model_type == "cnn":
-        if backend != "pytorch":
+        if backend == "pytorch":
+            model = CNN().to(device)
+            model.load_state_dict(state_dict)
+        elif backend == "mojo":
+            if device.type != "cuda":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Mojo backend requires CUDA",
+                )
+            model = SimpleCNN().to(device)
+            model.load_from_state_dict(state_dict)
+        else:
             raise HTTPException(
                 status_code=400,
-                detail="CNN model only supports pytorch backend",
+                detail=f"Unknown backend: {backend}",
             )
-        model = CNN().to(device)
-        model.load_state_dict(state_dict)
     else:
         raise HTTPException(
             status_code=400,
