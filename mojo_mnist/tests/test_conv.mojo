@@ -7,7 +7,7 @@ from mojo_mnist.conv import conv2d_gpu_kernel_impl
 comptime dtype = DType.float32
 
 comptime BATCH_SIZE = 2
-comptime IN_CHANNELS = 1
+comptime IN_CHANNELS = 3
 comptime OUT_CHANNELS = 4
 comptime HEIGHT = 28
 comptime WIDTH = 28
