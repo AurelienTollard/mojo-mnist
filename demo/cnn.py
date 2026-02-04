@@ -32,6 +32,8 @@ LOGGER = getLogger(__name__)
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 EPOCHS = 10
+CONV1_TILE_SIZE = 16
+CONV2_TILE_SIZE = 8
 
 
 class CNN(nn.Module):
@@ -116,7 +118,7 @@ class SimpleCNN(nn.Module):
             padding=1,
             pool_size=2,
             pool_stride=2,
-            tile_size=16,
+            tile_size=CONV1_TILE_SIZE,
         )
 
         conv2_out = torch.empty(batch_size, 64, 7, 7, device=x.device, dtype=x.dtype)
@@ -129,7 +131,7 @@ class SimpleCNN(nn.Module):
             padding=1,
             pool_size=2,
             pool_stride=2,
-            tile_size=16,
+            tile_size=CONV2_TILE_SIZE,
         )
 
         flat = conv2_out.reshape(batch_size, 64 * 7 * 7)
